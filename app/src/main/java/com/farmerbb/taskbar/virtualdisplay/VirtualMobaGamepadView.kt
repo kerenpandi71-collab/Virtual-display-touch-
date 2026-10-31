@@ -1,6 +1,8 @@
 package com.farmerbb.taskbar.virtualdisplay
 
 import android.content.Context
+import android.os.Handler
+import android.os.HandlerThread
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -20,6 +22,34 @@ internal class VirtualMobaGamepadView(
     private val targetBounds: () -> android.graphics.RectF?
 ) : View(context) {
     private data class Control(val id: String, var x: Float, var y: Float, val label: String, var radius: Float, var targetX: Float, var targetY: Float)
+    private data class TouchFrame(
+        val display: VirtualDisplayController,
+        val action: Int,
+        val pointerIds: IntArray,
+        val xs: FloatArray,
+        val ys: FloatArray
+    )
+
+    // Shizuku injection waits for Android's result; keep Binder calls off the UI touch path.
+    private val inputThread = HandlerThread("VirtualMobaTouchInput").apply { start() }
+    private val inputHandler = Handler(inputThread.looper)
+    private val inputQueueLock = Any()
+    private val inputQueue = java.util.ArrayDeque<TouchFrame>()
+    private var inputDrainScheduled = false
+    private val inputDrain = object : Runnable {
+        override fun run() {
+            while (true) {
+                val frame = synchronized(inputQueueLock) {
+                    if (inputQueue.isEmpty()) {
+                        inputDrainScheduled = false
+                        null
+                    } else inputQueue.removeFirst()
+                } ?: return
+                frame.display.injectTouchPoints(frame.action, frame.pointerIds, frame.xs, frame.ys)
+            }
+        }
+    }
+
     private val prefs = context.getSharedPreferences("saku_moba_gamepad", Context.MODE_PRIVATE)
     private val controls = mutableListOf(
         Control("stick", .14f, .76f, "MOVE", .105f, .14f, .76f),
@@ -76,7 +106,8 @@ internal class VirtualMobaGamepadView(
                 paint.textAlign = Paint.Align.CENTER
                 paint.textSize = dp(11).toFloat()
                 paint.typeface = Typeface.DEFAULT_BOLD
-                canvas.drawText(c.label, tx, ty + dp(4).toFloat(), paint)
+                if (c.id == "attack") drawAxe(canvas, tx, ty, dp(13).toFloat())
+                else canvas.drawText(c.label, tx, ty + dp(4).toFloat(), paint)
             }
         }
         controls.forEach { c ->
@@ -101,7 +132,8 @@ internal class VirtualMobaGamepadView(
             paint.color = Color.WHITE
             paint.textAlign = Paint.Align.CENTER
             paint.textSize = dp(if (c.id == "stick") 10 else 12).toFloat()
-            canvas.drawText(c.label, cx, cy - (paint.ascent() + paint.descent()) / 2f, paint)
+            if (c.id == "attack") drawAxe(canvas, cx, cy, r * .72f)
+            else canvas.drawText(c.label, cx, cy - (paint.ascent() + paint.descent()) / 2f, paint)
         }
         if (mappingControl != null) {
             paint.style = Paint.Style.FILL
@@ -199,23 +231,21 @@ internal class VirtualMobaGamepadView(
                     }
                     lastX = event.getX(index); lastY = event.getY(index)
                 } else {
-                    for (i in 0 until event.pointerCount) {
-                        val id = event.getPointerId(i)
-                        val control = active[id]
-                        if (control?.id == "stick") activePositions[id] = event.getX(i) to event.getY(i)
-                        if (control?.id == "skill2") {
-                            val size = targetSize()
-                            val rawDx = event.getX(i) - control.x * width
-                            val rawDy = event.getY(i) - control.y * height
-                            val maxTravel = control.radius * minOf(width, height) * 2.5f
-                            val distance = hypot(rawDx, rawDy)
-                            val factor = if (distance > maxTravel && distance > 0f) maxTravel / distance else 1f
-                            val dx = rawDx * factor / width * size.first
-                            val dy = rawDy * factor / height * size.second
-                            aimPositions[id] = (control.targetX * size.first + dx).coerceIn(0f, (size.first - 1).toFloat()) to (control.targetY * size.second + dy).coerceIn(0f, (size.second - 1).toFloat())
+                    // MotionEvent may batch intermediate coordinates. Replay its history so
+                    // circular joystick movement and quick Skill 2 drags do not jump over samples.
+                    for (historyIndex in 0 until event.historySize) {
+                        val sample = Array(event.pointerCount) { pointerIndex ->
+                            event.getHistoricalX(pointerIndex, historyIndex) to
+                                event.getHistoricalY(pointerIndex, historyIndex)
                         }
+                        updateActivePointerPositions(event, sample)
+                        inject(event, sample)
                     }
-                    inject(event)
+                    val current = Array(event.pointerCount) { pointerIndex ->
+                        event.getX(pointerIndex) to event.getY(pointerIndex)
+                    }
+                    updateActivePointerPositions(event, current)
+                    inject(event, current)
                 }
             }
             MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP -> {
@@ -242,7 +272,36 @@ internal class VirtualMobaGamepadView(
         return true
     }
 
-    private fun inject(event: MotionEvent) {
+    private fun updateActivePointerPositions(
+        event: MotionEvent,
+        positions: Array<Pair<Float, Float>>
+    ) {
+        for (i in 0 until event.pointerCount) {
+            val id = event.getPointerId(i)
+            val control = active[id] ?: continue
+            val x = positions[i].first
+            val y = positions[i].second
+            if (control.id == "stick") activePositions[id] = x to y
+            if (control.id == "skill2") {
+                val size = targetSize()
+                val rawDx = x - control.x * width
+                val rawDy = y - control.y * height
+                val maxTravel = control.radius * minOf(width, height) * 2.5f
+                val distance = hypot(rawDx, rawDy)
+                val factor = if (distance > maxTravel && distance > 0f) maxTravel / distance else 1f
+                val dx = rawDx * factor / width * size.first
+                val dy = rawDy * factor / height * size.second
+                aimPositions[id] =
+                    (control.targetX * size.first + dx).coerceIn(0f, (size.first - 1).toFloat()) to
+                    (control.targetY * size.second + dy).coerceIn(0f, (size.second - 1).toFloat())
+            }
+        }
+    }
+
+    private fun inject(
+        event: MotionEvent,
+        positions: Array<Pair<Float, Float>>? = null
+    ) {
         val display = controller() ?: return
         val (targetW, targetH) = targetSize()
         if (targetW <= 0 || targetH <= 0) return
@@ -252,11 +311,13 @@ internal class VirtualMobaGamepadView(
         for (i in 0 until event.pointerCount) {
             val id = event.getPointerId(i)
             val control = active[id]
+            val sourceX = positions?.getOrNull(i)?.first ?: event.getX(i)
+            val sourceY = positions?.getOrNull(i)?.second ?: event.getY(i)
             var tx: Float
             var ty: Float
             if (control?.id == "stick") {
-                val dx = event.getX(i) - control.x * width
-                val dy = event.getY(i) - control.y * height
+                val dx = sourceX - control.x * width
+                val dy = sourceY - control.y * height
                 val radius = control.radius * minOf(width, height) * .72f
                 val distance = hypot(dx, dy)
                 val factor = if (distance > radius && distance > 0f) radius / distance else 1f
@@ -270,13 +331,74 @@ internal class VirtualMobaGamepadView(
                 tx = control.targetX * targetW
                 ty = control.targetY * targetH
             } else {
-                tx = event.getX(i) / width * targetW
-                ty = event.getY(i) / height * targetH
+                tx = sourceX / width * targetW
+                ty = sourceY / height * targetH
             }
             xs[i] = tx.coerceIn(0f, (targetW - 1).toFloat())
             ys[i] = ty.coerceIn(0f, (targetH - 1).toFloat())
         }
-        display.injectTouchPoints(event.action, ids, xs, ys)
+        enqueueTouchFrame(TouchFrame(display, event.action, ids, xs, ys))
+    }
+
+    private fun enqueueTouchFrame(frame: TouchFrame) {
+        synchronized(inputQueueLock) {
+            if ((frame.action and MotionEvent.ACTION_MASK) == MotionEvent.ACTION_MOVE) {
+                // Cap movement backlog while preserving all press/release events.
+                val moves = inputQueue.count {
+                    (it.action and MotionEvent.ACTION_MASK) == MotionEvent.ACTION_MOVE
+                }
+                if (moves >= 8) {
+                    val iterator = inputQueue.iterator()
+                    while (iterator.hasNext()) {
+                        if ((iterator.next().action and MotionEvent.ACTION_MASK) == MotionEvent.ACTION_MOVE) {
+                            iterator.remove()
+                            break
+                        }
+                    }
+                }
+            }
+            inputQueue.addLast(frame)
+            if (!inputDrainScheduled) {
+                inputDrainScheduled = true
+                inputHandler.post(inputDrain)
+            }
+        }
+    }
+
+    private fun drawAxe(canvas: Canvas, centerX: Float, centerY: Float, size: Float) {
+        val handle = android.graphics.Path().apply {
+            moveTo(centerX - size * .34f, centerY + size * .34f)
+            lineTo(centerX + size * .20f, centerY - size * .28f)
+        }
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = (size * .16f).coerceAtLeast(dp(1).toFloat())
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.strokeJoin = Paint.Join.ROUND
+        paint.color = Color.rgb(225, 235, 245)
+        canvas.drawPath(handle, paint)
+
+        val blade = android.graphics.Path().apply {
+            moveTo(centerX + size * .04f, centerY - size * .10f)
+            cubicTo(
+                centerX + size * .18f, centerY - size * .58f,
+                centerX + size * .62f, centerY - size * .55f,
+                centerX + size * .55f, centerY - size * .16f
+            )
+            cubicTo(
+                centerX + size * .48f, centerY + size * .06f,
+                centerX + size * .26f, centerY + size * .11f,
+                centerX + size * .04f, centerY - size * .10f
+            )
+            close()
+        }
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(240, 245, 250)
+        canvas.drawPath(blade, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = (size * .055f).coerceAtLeast(dp(1).toFloat())
+        paint.color = Color.rgb(85, 105, 125)
+        canvas.drawPath(blade, paint)
+        paint.style = Paint.Style.FILL
     }
 
     private fun persist() {
