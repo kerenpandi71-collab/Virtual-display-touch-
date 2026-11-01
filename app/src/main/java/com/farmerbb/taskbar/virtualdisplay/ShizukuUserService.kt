@@ -859,6 +859,81 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         }
     }
 
+    private fun verifiedRecentTaskComponent(displayId: Int, taskId: Int): String? {
+        if (displayId !in 0..10000 || taskId <= 0) return null
+        val recent = getRecentTasks(displayId)
+        if (!recent.startsWith("taskId=") && !recent.contains("\\ntaskId=")) return null
+        val line = recent.lineSequence().firstOrNull { it.startsWith("taskId=$taskId") } ?: return null
+        return Regex("""^taskId=$taskId(?: • ([A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+))?$""")
+            .find(line)?.groupValues?.getOrNull(1)
+    }
+
+    override fun moveRecentTaskToFront(displayId: Int, taskId: Int): String {
+        if (verifiedRecentTaskComponent(displayId, taskId) == null) {
+            return "Task #$taskId tidak terverifikasi pada virtual display $displayId."
+        }
+        val result = runShizukuShell("am task move-to-front $taskId", timeoutMs = 5000L, maxCharacters = 700)
+        val success = result.first == 0 &&
+            !result.second.contains("Error", true) &&
+            !result.second.contains("Exception", true)
+        lastError = if (success) "Membuka kembali task #$taskId pada display $displayId."
+            else "Gagal membuka task #$taskId: ${result.second}"
+        return lastError
+    }
+
+    override fun forceStopRecentTask(displayId: Int, taskId: Int): String {
+        val component = verifiedRecentTaskComponent(displayId, taskId)
+            ?: return "Task #$taskId tidak terverifikasi pada virtual display $displayId."
+        val packageName = component.substringBefore('/')
+        if (!Regex("""^[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$""").matches(packageName)) {
+            return "Nama paket task tidak valid; force stop dibatalkan."
+        }
+        val result = runShizukuShell("am force-stop --user current $packageName", timeoutMs = 6000L, maxCharacters = 700)
+        val success = result.first == 0 &&
+            !result.second.contains("Error", true) &&
+            !result.second.contains("Exception", true)
+        lastError = if (success) "Force stop berhasil • $packageName"
+            else "Force stop $packageName gagal: ${result.second}"
+        return lastError
+    }
+
+    override fun removeRecentTask(displayId: Int, taskId: Int): String {
+        if (verifiedRecentTaskComponent(displayId, taskId) == null) {
+            return "Task #$taskId tidak terverifikasi pada virtual display $displayId."
+        }
+        val result = runShizukuShell("am task remove $taskId", timeoutMs = 5000L, maxCharacters = 700)
+        val success = result.first == 0 &&
+            !result.second.contains("Error", true) &&
+            !result.second.contains("Exception", true)
+        lastError = if (success) "Task #$taskId dihapus dari Recent."
+            else "Gagal menghapus task #$taskId: ${result.second}"
+        return lastError
+    }
+
+    override fun clearAllRecentTasks(displayId: Int): String {
+        if (displayId !in 0..10000) return "Display ID tidak valid."
+        val recent = getRecentTasks(displayId)
+        val ids = Regex("""(?m)^taskId=(\\d+)""").findAll(recent)
+            .mapNotNull { it.groupValues[1].toIntOrNull() }
+            .distinct()
+            .toList()
+        if (ids.isEmpty()) return "Tidak ada task terverifikasi untuk dibersihkan pada display $displayId."
+        var removed = 0
+        val failures = mutableListOf<String>()
+        ids.forEach { id ->
+            val result = runShizukuShell("am task remove $id", timeoutMs = 4000L, maxCharacters = 350)
+            if (result.first == 0 && !result.second.contains("Error", true) &&
+                !result.second.contains("Exception", true)) {
+                removed++
+            } else {
+                failures.add("#$id")
+            }
+        }
+        lastError = "Clear Recent display $displayId: $removed/${ids.size} task dihapus" +
+            if (failures.isEmpty()) "." else " • gagal ${failures.joinToString(", ")}."
+        return lastError
+    }
+
     override fun getLastError(): String = lastError
 
     override fun destroy() {
