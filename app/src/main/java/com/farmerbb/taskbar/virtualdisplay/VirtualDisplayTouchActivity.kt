@@ -260,6 +260,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             contentDescription = "Kursor putih Saku Desktop"
         }
         root.addView(cursorOverlay, FrameLayout.LayoutParams(-1, -1))
+        // The pointer is now rendered by Android's native mouse-pointer controller.
+        // Keep the old overlay view allocated for compatibility, but never draw the fake dot.
+        cursorOverlay?.visibility = View.GONE
 
         shizukuBridge = ShizukuBridge(this) { message ->
             runOnUiThread {
