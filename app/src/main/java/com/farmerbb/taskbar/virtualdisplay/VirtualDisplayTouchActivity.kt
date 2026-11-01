@@ -2178,7 +2178,18 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         } else {
             // Portrait keeps the existing stacked layout and floating keyboard behavior.
             val maxPreviewWidth = (rootWidth * previewSizePercent / 100).coerceIn(dp(180), rootWidth)
-            val maxPreviewHeight = (rootHeight * 40 / 100).coerceAtLeast(dp(100))
+            // Portrait preview can grow down toward the touchpad instead of stopping
+            // at the old 40% cap. Keep a small gap above the touchpad and preserve
+            // the virtual display aspect ratio so the image is not stretched.
+            val touchpadTop = if (touchpadPortraitHasCustomPosition) {
+                val panelHeight = (rootHeight * touchpadPortraitHeightPercent / 100)
+                    .coerceIn(dp(120), (rootHeight * 65 / 100).coerceAtLeast(dp(120)))
+                (rootHeight * touchpadPortraitYPercent / 100f).toInt()
+                    .coerceIn(0, (rootHeight - panelHeight).coerceAtLeast(0))
+            } else {
+                (rootHeight * 70 / 100).coerceAtMost(rootHeight)
+            }
+            val maxPreviewHeight = (touchpadTop - dp(14)).coerceAtLeast(dp(100))
             var desktopWidth = maxPreviewWidth
             var desktopHeight = (desktopWidth / aspect).toInt()
             if (desktopHeight > maxPreviewHeight) {
