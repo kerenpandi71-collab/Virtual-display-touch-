@@ -1995,20 +1995,18 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 keyboardPanel.layoutParams = it
             }
         } else {
-            // Portrait keeps the existing stacked layout and floating keyboard behavior.
-            val maxPreviewWidth = (rootWidth * previewSizePercent / 100).coerceIn(dp(180), rootWidth)
-            val maxPreviewHeight = (rootHeight * 40 / 100).coerceAtLeast(dp(100))
-            var desktopWidth = maxPreviewWidth
-            var desktopHeight = (desktopWidth / aspect).toInt()
-            if (desktopHeight > maxPreviewHeight) {
-                desktopHeight = maxPreviewHeight
-                desktopWidth = (desktopHeight * aspect).toInt()
-            }
+            // Portrait follows Cyber Saku Dex: preview fills the full app height.
+            // Width remains controlled by the preview-size slider; the virtual display
+            // resolution is unchanged and the SurfaceView scales its output to this frame.
+            val desktopWidth = (rootWidth * previewSizePercent / 100)
+                .coerceIn(dp(180).coerceAtMost(rootWidth), rootWidth)
+            val desktopHeight = rootHeight
             previewParams?.let {
                 it.width = desktopWidth
                 it.height = desktopHeight
                 it.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
                 it.leftMargin = 0; it.rightMargin = 0
+                it.topMargin = 0; it.bottomMargin = 0
                 preview?.layoutParams = it
             }
             panelParams?.let {
