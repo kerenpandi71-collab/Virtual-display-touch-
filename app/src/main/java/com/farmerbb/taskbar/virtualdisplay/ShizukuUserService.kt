@@ -869,15 +869,28 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     }
 
     override fun moveRecentTaskToFront(displayId: Int, taskId: Int): String {
-        if (verifiedRecentTaskComponent(displayId, taskId) == null) {
-            return "Task #$taskId tidak terverifikasi pada virtual display $displayId."
+        val component = verifiedRecentTaskComponent(displayId, taskId)
+            ?: return "Task #$taskId tidak terverifikasi pada virtual display $displayId."
+        val moveResult = runShizukuShell("am task move-to-front $taskId", timeoutMs = 5000L, maxCharacters = 700)
+        val moveSucceeded = moveResult.first == 0 &&
+            !moveResult.second.contains("Error", true) &&
+            !moveResult.second.contains("Exception", true) &&
+            !moveResult.second.contains("Unknown command", true)
+        if (moveSucceeded) {
+            lastError = "Task #$taskId diminta tampil di depan pada display $displayId."
+            return lastError
         }
-        val result = runShizukuShell("am task move-to-front $taskId", timeoutMs = 5000L, maxCharacters = 700)
-        val success = result.first == 0 &&
-            !result.second.contains("Error", true) &&
-            !result.second.contains("Exception", true)
-        lastError = if (success) "Membuka kembali task #$taskId pada display $displayId."
-            else "Gagal membuka task #$taskId: ${result.second}"
+        if (!Regex("""^[A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+$""").matches(component)) {
+            lastError = "Tidak bisa membuka task #$taskId: komponen aplikasi tidak valid."
+            return lastError
+        }
+        val launch = runShizukuShell("am start --display $displayId -n '$component'", timeoutMs = 8000L, maxCharacters = 1000)
+        val launchSucceeded = launch.first == 0 &&
+            !launch.second.contains("Error:", true) &&
+            !launch.second.contains("Exception", true) &&
+            !launch.second.contains("unable to resolve", true)
+        lastError = if (launchSucceeded) "Membuka $component pada virtual display $displayId."
+            else "Gagal membuka aplikasi pada display $displayId. move-to-front: \${moveResult.second}; start: \${launch.second}"
         return lastError
     }
 
@@ -898,39 +911,45 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     }
 
     override fun removeRecentTask(displayId: Int, taskId: Int): String {
-        if (verifiedRecentTaskComponent(displayId, taskId) == null) {
-            return "Task #$taskId tidak terverifikasi pada virtual display $displayId."
+        val component = verifiedRecentTaskComponent(displayId, taskId)
+            ?: return "Task #$taskId tidak terverifikasi pada virtual display $displayId."
+        if (component.substringBefore('/') == "com.kerenpandi.virtualdisplaytouch") {
+            return "Task Virtual Display Touch dilindungi agar aplikasi tidak tertutup sendiri."
         }
         val result = runShizukuShell("am task remove $taskId", timeoutMs = 5000L, maxCharacters = 700)
         val success = result.first == 0 &&
             !result.second.contains("Error", true) &&
             !result.second.contains("Exception", true)
         lastError = if (success) "Task #$taskId dihapus dari Recent."
-            else "Gagal menghapus task #$taskId: ${result.second}"
+            else "Gagal menghapus task #$taskId: \${result.second}"
         return lastError
     }
 
     override fun clearAllRecentTasks(displayId: Int): String {
         if (displayId !in 0..10000) return "Display ID tidak valid."
         val recent = getRecentTasks(displayId)
-        val ids = Regex("""(?m)^taskId=(\d+)""").findAll(recent)
-            .mapNotNull { it.groupValues[1].toIntOrNull() }
+        if (!recent.startsWith("taskId=") && !recent.contains("\ntaskId=")) {
+            return "Recent tidak dibersihkan karena daftar task display $displayId tidak valid: $recent"
+        }
+        val ids = Regex("""(?m)^taskId=(\d+) • ([A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+)$""")
+            .findAll(recent)
+            .mapNotNull { match ->
+                val id = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
+                val packageName = match.groupValues[2].substringBefore('/')
+                if (packageName == "com.kerenpandi.virtualdisplaytouch") null else id
+            }
             .distinct()
             .toList()
-        if (ids.isEmpty()) return "Tidak ada task terverifikasi untuk dibersihkan pada display $displayId."
+        if (ids.isEmpty()) return "Tidak ada task aplikasi yang aman untuk dibersihkan pada display $displayId. Aplikasi Virtual Display Touch dilindungi."
         var removed = 0
         val failures = mutableListOf<String>()
         ids.forEach { id ->
             val result = runShizukuShell("am task remove $id", timeoutMs = 4000L, maxCharacters = 350)
             if (result.first == 0 && !result.second.contains("Error", true) &&
-                !result.second.contains("Exception", true)) {
-                removed++
-            } else {
-                failures.add("#$id")
-            }
+                !result.second.contains("Exception", true)) removed++ else failures.add("#$id")
         }
-        lastError = "Clear Recent display $displayId: $removed/${ids.size} task dihapus" +
-            if (failures.isEmpty()) "." else " • gagal ${failures.joinToString(", ")}."
+        lastError = "Clear Recent display $displayId: $removed/\${ids.size} task dihapus" +
+            if (failures.isEmpty()) "." else " • gagal \${failures.joinToString(", ")}."
         return lastError
     }
 
