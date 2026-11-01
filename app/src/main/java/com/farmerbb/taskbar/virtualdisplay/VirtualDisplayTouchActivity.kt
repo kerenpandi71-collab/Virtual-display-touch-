@@ -1107,6 +1107,13 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     private fun showVirtualDisplayRecentTasks() {
+        // Recent is a toggle: tapping the nav button while the overview is visible
+        // dismisses it instead of rebuilding the same presentation.
+        recentAppsPresentation?.let { current ->
+            current.dismiss()
+            if (recentAppsPresentation === current) recentAppsPresentation = null
+            return
+        }
         val displayId = virtualDisplayController?.displayId ?: -1
         if (displayId < 0) {
             status.text = "Mulai virtual display dahulu."
@@ -1215,9 +1222,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                             runOnUiThread {
                                 status.text = message
                                 appendRuntimeLog(message)
-                                if (message.startsWith("Gagal") || message.startsWith("Task #")) {
-                                    showVirtualDisplayRecentTasks()
-                                }
+                                // Do not reopen the overview after selecting an app.
+                                // The selected task should take over the display directly.
                             }
                         }
                     }
