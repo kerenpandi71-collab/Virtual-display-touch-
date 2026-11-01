@@ -948,8 +948,12 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             if (result.first == 0 && !result.second.contains("Error", true) &&
                 !result.second.contains("Exception", true)) removed++ else failures.add("#$id")
         }
-        lastError = "Clear Recent display $displayId: $removed/${ids.size} task dihapus" +
-            if (failures.isEmpty()) "." else " • gagal ${failures.joinToString(", ")}."
+        val failureSummary = failures.joinToString(separator = ", ")
+        lastError = if (failures.isEmpty()) {
+            "Clear Recent display $displayId: $removed/${ids.size} task dihapus."
+        } else {
+            "Clear Recent display $displayId: $removed/${ids.size} task dihapus • gagal $failureSummary."
+        }
         return lastError
     }
 
