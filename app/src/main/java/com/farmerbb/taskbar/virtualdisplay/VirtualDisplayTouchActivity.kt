@@ -1252,9 +1252,15 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                     .setMessage("Kartu task pada virtual display akan dihapus. Aplikasi tidak dipaksa berhenti.")
                     .setNegativeButton("Batal", null)
                     .setPositiveButton("Clear all") { _, _ ->
+                        presentation.dismiss()
+                        if (recentAppsPresentation === presentation) recentAppsPresentation = null
                         keyboardInputExecutor.execute {
                             val msg = shizukuBridge.clearAllRecentTasks(displayId)
-                            runOnUiThread { status.text = msg; appendRuntimeLog(msg); showVirtualDisplayRecentTasks() }
+                            runOnUiThread {
+                                status.text = msg
+                                appendRuntimeLog(msg)
+                                if (!isFinishing && !isDestroyed) showVirtualDisplayRecentTasks()
+                            }
                         }
                     }.show()
             }
