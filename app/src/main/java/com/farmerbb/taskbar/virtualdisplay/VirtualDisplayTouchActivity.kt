@@ -1114,7 +1114,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         status.text = "Memuat Recent display $displayId…"
         keyboardInputExecutor.execute {
-            val result = shizukuBridge.getRecentTasks(displayId)
+            val result = shizukuBridge.getOpenTasks(displayId)
             runOnUiThread {
                 appendRuntimeLog("Recent display $displayId\\n$result")
                 renderRecentAppsGrid(displayId, result)
@@ -1123,7 +1123,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
     }
 
-    /** Recent overview is presented on the virtual display, never over the phone UI. */
+    /** Forkdex-style Open Tasks overview hosted only on the selected virtual display. */
     private fun renderRecentAppsGrid(displayId: Int, result: String) {
         val display = (getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).getDisplay(displayId)
         if (display == null) { status.text = "Virtual display $displayId tidak ditemukan."; return }
@@ -1132,149 +1132,168 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         recentAppsPresentation = presentation
         val ctx = presentation.context
         val density = ctx.resources.displayMetrics.density
-        fun d(v: Int) = (v * density).toInt().coerceAtLeast(1)
-        data class Entry(val id: Int, val component: String, val pkg: String?)
-        val tasks = Regex("""taskId=(\d+)(?:\s*•\s*([^\s]+))?""").findAll(result).mapNotNull {
-            val id = it.groupValues[1].toIntOrNull() ?: return@mapNotNull null
-            val component = it.groupValues.getOrNull(2).orEmpty()
-            Entry(id, component, component.substringBefore('/').takeIf { p -> p.contains('.') })
-        }.distinctBy { it.id }.toList()
+        fun d(value: Int) = (value * density).toInt().coerceAtLeast(1)
+
+        data class OpenTask(val id: Int, val component: String, val packageName: String)
+        val tasks = Regex("""taskId=(\\d+)\\s*•\\s*([^\\s]+)""")
+            .findAll(result)
+            .mapNotNull { match ->
+                val id = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
+                val component = match.groupValues[2]
+                val packageName = component.substringBefore('/')
+                if (packageName.isBlank()) return@mapNotNull null
+                OpenTask(id, component, packageName)
+            }.distinctBy { it.id }
 
         val root = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(d(16), d(12), d(16), d(10))
-            setBackgroundColor(Color.rgb(76, 76, 76))
+            setPadding(d(14), d(14), d(14), d(12))
+            setBackgroundColor(Color.rgb(25, 29, 36))
+            isFocusable = true
         }
-        val header = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val header = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
         header.addView(TextView(ctx).apply {
-            text = "Aplikasi terbaru"; textSize = 22f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD
+            text = "Open tasks (${tasks.size})"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
         }, LinearLayout.LayoutParams(0, d(48), 1f))
-        header.addView(TextView(ctx).apply {
-            text = "DISPLAY $displayId"; textSize = 10f; setTextColor(Color.CYAN); gravity = Gravity.CENTER
-            setPadding(d(10), d(6), d(10), d(6))
-            background = GradientDrawable().apply { cornerRadius = d(12).toFloat(); setColor(Color.rgb(35, 51, 66)) }
-        })
-        root.addView(header)
-        val scroll = ScrollView(ctx).apply { isFillViewport = true }
-        val grid = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
-        if (tasks.isEmpty()) {
-            grid.addView(TextView(ctx).apply {
-                text = result; textSize = 13f; setTextColor(Color.LTGRAY); gravity = Gravity.CENTER
-                setPadding(d(20), d(28), d(20), d(28))
-            }, LinearLayout.LayoutParams(-1, d(180)))
-        } else tasks.chunked(2).forEach { pair ->
-            val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-            pair.forEachIndexed { index, task ->
-                val info = try { task.pkg?.let { packageManager.getApplicationInfo(it, 0) } } catch (_: Throwable) { null }
-                val name = try { info?.let { packageManager.getApplicationLabel(it).toString() } }
-                    catch (_: Throwable) { null } ?: task.pkg ?: "Aplikasi"
-                val card = LinearLayout(ctx).apply {
-                    orientation = LinearLayout.VERTICAL; setPadding(d(9), d(9), d(9), d(8))
-                    background = GradientDrawable().apply {
-                        cornerRadius = d(16).toFloat(); setColor(Color.rgb(20, 21, 24))
-                        setStroke(d(1), Color.rgb(76, 91, 108))
-                    }
-                }
-                val title = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-                title.addView(android.widget.ImageView(ctx).apply {
-                    setImageDrawable(try { info?.let { packageManager.getApplicationIcon(it) } } catch (_: Throwable) { null }
-                        ?: getDrawable(android.R.drawable.sym_def_app_icon))
-                }, LinearLayout.LayoutParams(d(30), d(30)))
-                title.addView(TextView(ctx).apply {
-                    text = name; textSize = 13f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD
-                    maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(d(8), 0, 0, 0)
-                }, LinearLayout.LayoutParams(0, d(38), 1f))
-                card.addView(title)
-                val preview = FrameLayout(ctx).apply {
-                    background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                        intArrayOf(Color.rgb(42, 48, 58), Color.rgb(12, 15, 21))).apply { cornerRadius = d(12).toFloat() }
-                    addView(TextView(ctx).apply {
-                        text = name; textSize = 14f; setTextColor(Color.LTGRAY); gravity = Gravity.CENTER
-                    }, FrameLayout.LayoutParams(-1, -1))
-                }
-                card.addView(preview, LinearLayout.LayoutParams(-1, d(105)).apply { topMargin = d(7) })
-                card.addView(TextView(ctx).apply {
-                    text = "Ketuk kartu untuk kembali"; textSize = 9f; setTextColor(Color.CYAN)
-                })
-                val buttons = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-                buttons.addView(Button(ctx).apply {
-                    text = "Paksa berhenti"; textSize = 9f; isAllCaps = false
-                    setOnClickListener {
-                        AlertDialog.Builder(ctx).setTitle("Paksa berhenti $name?")
-                            .setMessage("Aplikasi akan dihentikan. Pekerjaan yang belum disimpan bisa hilang.")
-                            .setNegativeButton("Batal", null)
-                            .setPositiveButton("Paksa berhenti") { _, _ ->
-                                keyboardInputExecutor.execute {
-                                    val msg = shizukuBridge.forceStopRecentTask(displayId, task.id)
-                                    runOnUiThread { status.text = msg; appendRuntimeLog(msg); showVirtualDisplayRecentTasks() }
-                                }
-                            }.show()
-                    }
-                }, LinearLayout.LayoutParams(0, d(38), 1f))
-                buttons.addView(Button(ctx).apply {
-                    text = "Hapus"; textSize = 9f; isAllCaps = false
-                    setOnClickListener {
-                        keyboardInputExecutor.execute {
-                            val msg = shizukuBridge.removeRecentTask(displayId, task.id)
-                            runOnUiThread { status.text = msg; appendRuntimeLog(msg); showVirtualDisplayRecentTasks() }
-                        }
-                    }
-                }, LinearLayout.LayoutParams(0, d(38), 0.65f))
-                card.addView(buttons)
-                card.setOnClickListener {
-                    presentation.dismiss(); recentAppsPresentation = null
-                    keyboardInputExecutor.execute {
-                        val msg = shizukuBridge.moveRecentTaskToFront(displayId, task.id)
-                        runOnUiThread {
-                            status.text = msg; appendRuntimeLog(msg)
-                            if (msg.startsWith("Gagal") || msg.startsWith("Task #")) showVirtualDisplayRecentTasks()
-                        }
-                    }
-                }
-                row.addView(card, LinearLayout.LayoutParams(0, d(225), 1f).apply {
-                    if (index == 0) rightMargin = d(5) else leftMargin = d(5)
-                    bottomMargin = d(9)
-                })
-            }
-            if (pair.size == 1) row.addView(View(ctx), LinearLayout.LayoutParams(0, d(225), 1f))
-            grid.addView(row)
-        }
-        scroll.addView(grid)
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        val footer = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        footer.addView(TextView(ctx).apply {
-            text = tasks.size.toString() + " aplikasi"; textSize = 10f; setTextColor(Color.LTGRAY)
-        }, LinearLayout.LayoutParams(0, d(46), 1f))
-        footer.addView(Button(ctx).apply {
-            text = "Clear all"; isAllCaps = false
+        header.addView(Button(ctx).apply {
+            text = "Refresh"
+            isAllCaps = false
+            setOnClickListener { showVirtualDisplayRecentTasks() }
+        }, LinearLayout.LayoutParams(d(92), d(40)))
+        header.addView(Button(ctx).apply {
+            text = "Tutup"
+            isAllCaps = false
             setOnClickListener {
-                AlertDialog.Builder(ctx).setTitle("Clear Recent semua?")
-                    .setMessage("Kartu task pada virtual display akan dihapus. Aplikasi tidak dipaksa berhenti.")
-                    .setNegativeButton("Batal", null)
-                    .setPositiveButton("Clear all") { _, _ ->
+                presentation.dismiss()
+                if (recentAppsPresentation === presentation) recentAppsPresentation = null
+            }
+        }, LinearLayout.LayoutParams(d(76), d(40)))
+        root.addView(header)
+
+        if (tasks.isEmpty()) {
+            root.addView(TextView(ctx).apply {
+                text = if (result.isBlank()) "Tidak ada aplikasi terbuka pada display ini."
+                    else result
+                textSize = 14f
+                setTextColor(Color.LTGRAY)
+                gravity = Gravity.CENTER
+                setPadding(d(20), d(28), d(20), d(28))
+            }, LinearLayout.LayoutParams(-1, 0, 1f))
+        } else {
+            val scroll = ScrollView(ctx).apply { isFillViewport = true }
+            val grid = android.widget.GridLayout(ctx).apply {
+                columnCount = if (ctx.resources.configuration.screenWidthDp >= 900) 4 else 3
+                useDefaultMargins = false
+                alignmentMode = android.widget.GridLayout.ALIGN_BOUNDS
+            }
+            tasks.forEach { task ->
+                val appInfo = try {
+                    packageManager.getApplicationInfo(task.packageName, 0)
+                } catch (_: Throwable) { null }
+                val label = try {
+                    appInfo?.let { packageManager.getApplicationLabel(it).toString() }
+                } catch (_: Throwable) { null } ?: task.packageName
+                val tile = FrameLayout(ctx).apply {
+                    background = GradientDrawable().apply {
+                        cornerRadius = d(6).toFloat()
+                        setColor(Color.rgb(36, 42, 51))
+                        setStroke(d(1), Color.rgb(66, 82, 101))
+                    }
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
                         presentation.dismiss()
                         if (recentAppsPresentation === presentation) recentAppsPresentation = null
                         keyboardInputExecutor.execute {
-                            val msg = shizukuBridge.clearAllRecentTasks(displayId)
+                            val message = shizukuBridge.focusOpenTask(displayId, task.id)
                             runOnUiThread {
-                                status.text = msg
-                                appendRuntimeLog(msg)
-                                if (!isFinishing && !isDestroyed) showVirtualDisplayRecentTasks()
+                                status.text = message
+                                appendRuntimeLog(message)
+                                if (message.startsWith("Gagal") || message.startsWith("Task #")) {
+                                    showVirtualDisplayRecentTasks()
+                                }
                             }
                         }
-                    }.show()
+                    }
+                }
+                val content = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    setPadding(d(8), d(8), d(8), d(6))
+                }
+                content.addView(android.widget.ImageView(ctx).apply {
+                    setImageDrawable(
+                        try { appInfo?.let { packageManager.getApplicationIcon(it) } }
+                        catch (_: Throwable) { null } ?: getDrawable(android.R.drawable.sym_def_app_icon)
+                    )
+                    scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                }, LinearLayout.LayoutParams(d(42), d(42)))
+                content.addView(TextView(ctx).apply {
+                    text = label
+                    textSize = 12f
+                    setTextColor(Color.WHITE)
+                    typeface = Typeface.DEFAULT_BOLD
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    gravity = Gravity.CENTER
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = d(5) })
+                content.addView(TextView(ctx).apply {
+                    text = "Task #${task.id}"
+                    textSize = 10f
+                    setTextColor(Color.LTGRAY)
+                    gravity = Gravity.CENTER
+                })
+                tile.addView(content, FrameLayout.LayoutParams(-1, -1))
+                val close = TextView(ctx).apply {
+                    text = "×"
+                    textSize = 21f
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.LTGRAY)
+                    contentDescription = "Tutup $label"
+                    setPadding(d(4), 0, d(4), 0)
+                    setOnClickListener {
+                        keyboardInputExecutor.execute {
+                            val message = shizukuBridge.closeOpenTask(displayId, task.id)
+                            runOnUiThread {
+                                status.text = message
+                                appendRuntimeLog(message)
+                                showVirtualDisplayRecentTasks()
+                            }
+                        }
+                    }
+                }
+                tile.addView(close, FrameLayout.LayoutParams(d(32), d(32), Gravity.TOP or Gravity.END))
+                val params = android.widget.GridLayout.LayoutParams().apply {
+                    width = 0
+                    height = d(112)
+                    columnSpec = android.widget.GridLayout.spec(
+                        android.widget.GridLayout.UNDEFINED, 1f
+                    )
+                    setMargins(d(4), d(4), d(4), d(4))
+                }
+                grid.addView(tile, params)
             }
-        })
-        footer.addView(Button(ctx).apply { text = "Refresh"; isAllCaps = false; setOnClickListener { showVirtualDisplayRecentTasks() } })
-        footer.addView(Button(ctx).apply {
-            text = "Tutup"; isAllCaps = false
-            setOnClickListener { presentation.dismiss(); if (recentAppsPresentation === presentation) recentAppsPresentation = null }
-        })
-        root.addView(footer)
+            scroll.addView(grid, ScrollView.LayoutParams(-1, -2))
+            root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f).apply {
+                topMargin = d(12)
+            })
+        }
+
         presentation.setContentView(root)
-        presentation.setOnDismissListener { if (recentAppsPresentation === presentation) recentAppsPresentation = null }
+        presentation.setOnDismissListener {
+            if (recentAppsPresentation === presentation) recentAppsPresentation = null
+        }
         presentation.show()
-        presentation.window?.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+        presentation.window?.setLayout(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT
+        )
     }
 
     private fun sendVirtualNavigationKey(keyCode: Int) {
