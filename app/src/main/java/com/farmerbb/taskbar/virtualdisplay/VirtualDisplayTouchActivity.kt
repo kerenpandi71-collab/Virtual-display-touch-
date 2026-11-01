@@ -6,6 +6,7 @@ import android.hardware.display.DisplayManager
 
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import java.util.concurrent.Executors
 import android.graphics.Color
 import android.graphics.Typeface
@@ -260,9 +261,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             contentDescription = "Kursor putih Saku Desktop"
         }
         root.addView(cursorOverlay, FrameLayout.LayoutParams(-1, -1))
-        // The pointer is now rendered by Android's native mouse-pointer controller.
-        // Keep the old overlay view allocated for compatibility, but never draw the fake dot.
-        cursorOverlay?.visibility = View.GONE
+        // Keep the existing overlay cursor visible; only its icon is changed to a mouse pointer.
 
         shizukuBridge = ShizukuBridge(this) { message ->
             runOnUiThread {
@@ -1974,14 +1973,30 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         cursorOverlay?.invalidate()
     }
 
-    /** SakuDextop-style CursorView: filled white dot, dark outline, and click pulse. */
+    /** Draw a classic mouse arrow while preserving the existing overlay position and movement. */
     private fun drawDextopCursor(canvas: Canvas) {
         val surface = preview ?: return
         if (surface.width <= 0 || surface.height <= 0) return
         val pointerX = surface.left + (cursorX / targetWidth) * surface.width
         val pointerY = surface.top + (cursorY / targetHeight) * surface.height
-        canvas.drawCircle(pointerX, pointerY, cursorPulseRadius, cursorPaint)
-        canvas.drawCircle(pointerX, pointerY, cursorPulseRadius, cursorStrokePaint)
+        val scale = resources.displayMetrics.density
+        val arrow = Path().apply {
+            // The top-left tip is the cursor hotspot, matching a desktop mouse pointer.
+            moveTo(pointerX, pointerY)
+            lineTo(pointerX, pointerY + 25f * scale)
+            lineTo(pointerX + 6.5f * scale, pointerY + 19f * scale)
+            lineTo(pointerX + 12f * scale, pointerY + 31f * scale)
+            lineTo(pointerX + 17f * scale, pointerY + 28.5f * scale)
+            lineTo(pointerX + 11.5f * scale, pointerY + 17f * scale)
+            lineTo(pointerX + 21f * scale, pointerY + 16f * scale)
+            close()
+        }
+        if (cursorPulseRadius > 13f) {
+            canvas.drawCircle(pointerX + 8f * scale, pointerY + 15f * scale,
+                cursorPulseRadius * scale, cursorStrokePaint)
+        }
+        canvas.drawPath(arrow, cursorPaint)
+        canvas.drawPath(arrow, cursorStrokePaint)
     }
 
     private fun pulseDextopCursor() {
