@@ -846,7 +846,19 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         return try {
             val (task, component) = verifiedOpenTask(displayId, taskId)
                 ?: return "Task #$taskId tidak ditemukan pada display $displayId."
-            applyForkdexWindowTransaction(task, false)
+            // Use ATM's native task focus operation first; it transfers the selected task
+            // to the foreground on its existing display. WCT reorder is the fallback.
+            val atm = frameworkTaskService()
+            val moveToFront = atm.javaClass.methods.firstOrNull { method ->
+                method.name == "moveTaskToFront" && method.parameterTypes.size == 3 &&
+                    method.parameterTypes[0] == Int::class.javaPrimitiveType &&
+                    method.parameterTypes[1] == Int::class.javaPrimitiveType
+            }
+            val moved = if (moveToFront != null) runCatching {
+                moveToFront.invoke(atm, taskId, 0, null)
+                true
+            }.getOrDefault(false) else false
+            if (!moved) applyForkdexWindowTransaction(task, false)
             lastError = "Task #$taskId ($component) difokuskan."
             lastError
         } catch (error: Throwable) {
