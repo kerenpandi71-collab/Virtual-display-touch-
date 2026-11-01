@@ -4,6 +4,8 @@
     <application
         android:allowBackup="false"
         android:label="Virtual Display Touch"
+        android:icon="@drawable/ic_virtual_display_touch"
+        android:roundIcon="@drawable/ic_virtual_display_touch"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="false">
