@@ -91,6 +91,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var keyboardPanel: LinearLayout
     private lateinit var imeBridgeEditText: EditText
     private var keyboardPanelVisible = false
+    private var gamepadModeActive = false
     @Volatile private var systemKeyboardRequested = false
     private var keyboardWidthPercent = 100
     private var keyboardHeightDp = 240
@@ -557,16 +558,20 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                                     } else if ((virtualDisplayController?.displayId ?: -1) < 0) {
                                         status.text = "Buat virtual display terlebih dahulu."
                                     } else {
-                                        gamepadOverlay?.visibility = if (gamepadOverlay?.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-                                        status.text = if (gamepadOverlay?.visibility == View.VISIBLE) "Virtual Game Pad aktif." else "Virtual Game Pad disembunyikan."
+                                        gamepadModeActive = gamepadOverlay?.visibility != View.VISIBLE
+                                        gamepadOverlay?.visibility = if (gamepadModeActive) View.VISIBLE else View.GONE
+                                        status.text = if (gamepadModeActive) "Virtual Game Pad aktif." else "Virtual Game Pad disembunyikan."
+                                        updateDesktopLayout(root.width, root.height)
                                     }
                                 }
                                 6 -> {
                                     if (gamepadOverlay == null) {
                                         status.text = "Tampilkan Virtual Game Pad dahulu."
                                     } else {
+                                        gamepadModeActive = true
                                         gamepadOverlay?.visibility = View.VISIBLE
                                         gamepadOverlay?.setEditMode(true)
+                                        updateDesktopLayout(root.width, root.height)
                                         AlertDialog.Builder(this)
                                             .setTitle("Atur posisi Game Pad")
                                             .setMessage("Seret analog dan tombol ke posisi yang kamu inginkan. Posisi tersimpan otomatis.")
@@ -2215,14 +2220,24 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val keyboardParams = keyboardPanel.layoutParams as? FrameLayout.LayoutParams
 
         if (landscape) {
-            // Three fixed columns: touchpad | virtual screen | keyboard.
-            // The SurfaceView keeps its source aspect ratio and stays centered.
             val sideGap = dp(6)
-            val keyboardWidth = ((rootWidth * 30 / 100) * keyboardLandscapeWidthPercent / 100).coerceIn(dp(140), (rootWidth * 38 / 100).coerceAtLeast(dp(140)))
-            val touchWidth = (rootWidth * touchpadWidthPercent / 100).coerceIn(dp(120), (rootWidth * 45 / 100).coerceAtLeast(dp(120)))
-            val centerWidth = (rootWidth - keyboardWidth - touchWidth - sideGap * 4).coerceAtLeast(dp(120))
             val maxCenterHeight = (rootHeight * 92 / 100).coerceAtLeast(dp(100))
-            var desktopWidth = centerWidth
+            val keyboardMode = keyboardPanelVisible && !gamepadModeActive
+            val keyboardWidth = if (keyboardMode) {
+                ((rootWidth * 50 / 100) * keyboardLandscapeWidthPercent / 100)
+                    .coerceIn(dp(140), (rootWidth * 58 / 100).coerceAtLeast(dp(140)))
+            } else 0
+            val touchWidth = if (keyboardMode || gamepadModeActive) 0 else {
+                (rootWidth * touchpadWidthPercent / 100).coerceIn(dp(120), (rootWidth * 45 / 100).coerceAtLeast(dp(120)))
+            }
+            val availablePreviewWidth = if (keyboardMode) {
+                (rootWidth - keyboardWidth - sideGap * 3).coerceAtLeast(dp(120))
+            } else if (gamepadModeActive) {
+                (rootWidth * 54 / 100).coerceAtLeast(dp(120))
+            } else {
+                (rootWidth - keyboardWidth - touchWidth - sideGap * 4).coerceAtLeast(dp(120))
+            }
+            var desktopWidth = availablePreviewWidth
             var desktopHeight = (desktopWidth / aspect).toInt()
             if (desktopHeight > maxCenterHeight) {
                 desktopHeight = maxCenterHeight
@@ -2231,12 +2246,19 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             previewParams?.let {
                 it.width = desktopWidth
                 it.height = desktopHeight
-                it.gravity = Gravity.CENTER
-                it.leftMargin = 0; it.rightMargin = 0; it.topMargin = 0; it.bottomMargin = 0
+                it.gravity = if (keyboardMode) Gravity.LEFT or Gravity.CENTER_VERTICAL else Gravity.CENTER
+                it.leftMargin = if (keyboardMode) sideGap else 0
+                it.rightMargin = 0; it.topMargin = 0; it.bottomMargin = 0
                 preview?.layoutParams = it
             }
             panelParams?.let {
                 it.width = touchWidth
+                it.height = if (gamepadModeActive || keyboardMode) 0 else (rootHeight * touchpadLandscapeHeightPercent / 100).coerceIn(dp(130), rootHeight)
+                if (gamepadModeActive || keyboardMode) {
+                    bottomPanel.visibility = View.GONE
+                    it.gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
+                    it.leftMargin = 0; it.rightMargin = 0; it.topMargin = 0; it.bottomMargin = 0
+                } else if (touchpadLandscapeHasCustomPosition)
                 it.height = (rootHeight * touchpadLandscapeHeightPercent / 100).coerceIn(dp(130), rootHeight)
                 if (touchpadLandscapeHasCustomPosition) {
                     val maxX = (rootWidth - it.width).coerceAtLeast(0)
@@ -2255,16 +2277,22 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 keyboardPanel.visibility = if (keyboardPanelVisible) View.VISIBLE else View.GONE
                 it.width = keyboardWidth
                 it.height = dp(keyboardLandscapeHeightDp).coerceAtMost(rootHeight)
-                if (keyboardLandscapeHasCustomPosition) {
-                    val maxX = (rootWidth - it.width).coerceAtLeast(0)
-                    val maxY = (rootHeight - it.height).coerceAtLeast(0)
-                    it.gravity = Gravity.TOP or Gravity.START
-                    it.leftMargin = (maxX * keyboardLandscapeXPercent / 100f).toInt()
-                    it.topMargin = (maxY * keyboardLandscapeYPercent / 100f).toInt()
-                    it.rightMargin = 0; it.bottomMargin = 0
+                if (keyboardMode) {
+                    it.width = keyboardWidth
+                    if (keyboardLandscapeHasCustomPosition) {
+                        val maxX = (rootWidth - it.width).coerceAtLeast(0)
+                        val maxY = (rootHeight - it.height).coerceAtLeast(0)
+                        it.gravity = Gravity.TOP or Gravity.START
+                        it.leftMargin = (maxX * keyboardLandscapeXPercent / 100f).toInt()
+                        it.topMargin = (maxY * keyboardLandscapeYPercent / 100f).toInt()
+                        it.rightMargin = 0; it.bottomMargin = 0
+                    } else {
+                        it.gravity = Gravity.RIGHT or Gravity.CENTER_VERTICAL
+                        it.leftMargin = 0; it.rightMargin = sideGap; it.topMargin = 0; it.bottomMargin = 0
+                    }
                 } else {
+                    it.width = 0
                     it.gravity = Gravity.RIGHT or Gravity.CENTER_VERTICAL
-                    it.leftMargin = 0; it.rightMargin = sideGap; it.topMargin = 0; it.bottomMargin = 0
                 }
                 keyboardPanel.layoutParams = it
             }
