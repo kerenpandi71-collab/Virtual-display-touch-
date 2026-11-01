@@ -19,9 +19,7 @@ interface IVirtualDisplayService {
     String getDisplayDiagnostics(int displayId) = 8;
     boolean runShellCommand(String command) = 17;
     String requestRootAccess() = 18;
-    String getRecentTasks(int displayId) = 19;
-    String moveRecentTaskToFront(int displayId, int taskId) = 20;
-    String forceStopRecentTask(int displayId, int taskId) = 21;
-    String removeRecentTask(int displayId, int taskId) = 22;
-    String clearAllRecentTasks(int displayId) = 23;
+    String getOpenTasks(int displayId) = 19;
+    String focusOpenTask(int displayId, int taskId) = 20;
+    String closeOpenTask(int displayId, int taskId) = 22;
 }
