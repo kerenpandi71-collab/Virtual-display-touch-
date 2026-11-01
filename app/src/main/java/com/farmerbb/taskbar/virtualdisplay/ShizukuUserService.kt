@@ -862,7 +862,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     private fun verifiedRecentTaskComponent(displayId: Int, taskId: Int): String? {
         if (displayId !in 0..10000 || taskId <= 0) return null
         val recent = getRecentTasks(displayId)
-        if (!recent.startsWith("taskId=") && !recent.contains("\\ntaskId=")) return null
+        if (!recent.startsWith("taskId=") && !recent.contains("\ntaskId=")) return null
         val line = recent.lineSequence().firstOrNull { it.startsWith("taskId=$taskId") } ?: return null
         return Regex("""^taskId=$taskId(?: • ([A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+))?$""")
             .find(line)?.groupValues?.getOrNull(1)
@@ -885,7 +885,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         val component = verifiedRecentTaskComponent(displayId, taskId)
             ?: return "Task #$taskId tidak terverifikasi pada virtual display $displayId."
         val packageName = component.substringBefore('/')
-        if (!Regex("""^[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$""").matches(packageName)) {
+        if (!Regex("""^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$""").matches(packageName)) {
             return "Nama paket task tidak valid; force stop dibatalkan."
         }
         val result = runShizukuShell("am force-stop --user current $packageName", timeoutMs = 6000L, maxCharacters = 700)
@@ -913,7 +913,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     override fun clearAllRecentTasks(displayId: Int): String {
         if (displayId !in 0..10000) return "Display ID tidak valid."
         val recent = getRecentTasks(displayId)
-        val ids = Regex("""(?m)^taskId=(\\d+)""").findAll(recent)
+        val ids = Regex("""(?m)^taskId=(\d+)""").findAll(recent)
             .mapNotNull { it.groupValues[1].toIntOrNull() }
             .distinct()
             .toList()
