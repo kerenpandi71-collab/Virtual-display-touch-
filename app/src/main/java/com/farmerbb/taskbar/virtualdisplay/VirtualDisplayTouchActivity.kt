@@ -1135,7 +1135,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         fun d(value: Int) = (value * density).toInt().coerceAtLeast(1)
 
         data class OpenTask(val id: Int, val component: String, val packageName: String)
-        val tasks = Regex("""taskId=(\\d+)\\s*•\\s*([^\\s]+)""")
+        val tasks = Regex("""taskId=(\d+)\s*•\s*([^\s]+)""")
             .findAll(result)
             .mapNotNull { match ->
                 val id = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
