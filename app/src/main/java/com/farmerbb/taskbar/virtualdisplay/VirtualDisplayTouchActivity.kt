@@ -1062,54 +1062,31 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
                 val base = super.onCreateInputConnection(outAttrs) ?: return null
                 return object : InputConnectionWrapper(base, false) {
-                    // Keep Gboard's composing buffer in sync with the target app. Gboard
-                    // commonly sends setComposingText first and commitText only later.
-                    private var composingText = ""
-                    private var justFinishedComposingText = ""
-
+                    // Keep Gboard composition local to this proxy. Sending each composing
+                    // revision as KeyEvents caused dropped/duplicated text on secondary displays.
+                    // Only commitText is forwarded, once the IME has finalized the characters.
                     override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
-                        val next = text?.toString().orEmpty()
-                        justFinishedComposingText = ""
-                        if (composingText.isNotEmpty()) sendImeBridgeDelete(composingText.codePointCount(0, composingText.length))
-                        if (next.isNotEmpty()) sendImeBridgeText(next)
-                        composingText = next
                         return super.setComposingText(text, newCursorPosition)
                     }
 
                     override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
-                        val committed = text?.toString().orEmpty()
-                        val alreadyInjected = committed.isNotEmpty() &&
-                            (committed == composingText || committed == justFinishedComposingText)
-                        if (composingText.isNotEmpty() && !alreadyInjected) {
-                            sendImeBridgeDelete(composingText.codePointCount(0, composingText.length))
-                        }
-                        composingText = ""
-                        justFinishedComposingText = ""
-                        if (committed.isNotEmpty() && !alreadyInjected) sendImeBridgeText(committed)
+                        text?.toString()?.takeIf { it.isNotEmpty() }?.let(::sendImeBridgeText)
                         return super.commitText(text, newCursorPosition)
                     }
 
                     override fun finishComposingText(): Boolean {
-                        // Composing characters were already mirrored to the target display.
-                        // Finalize locally without deleting/re-inserting them.
-                        justFinishedComposingText = composingText
-                        composingText = ""
                         return super.finishComposingText()
                     }
 
                     override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
                         if (beforeLength > 0) sendImeBridgeDelete(beforeLength)
                         if (afterLength > 0) sendImeBridgeForwardDelete(afterLength)
-                        composingText = ""
-                        justFinishedComposingText = ""
                         return super.deleteSurroundingText(beforeLength, afterLength)
                     }
 
                     override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean {
                         if (beforeLength > 0) sendImeBridgeDelete(beforeLength)
                         if (afterLength > 0) sendImeBridgeForwardDelete(afterLength)
-                        composingText = ""
-                        justFinishedComposingText = ""
                         return super.deleteSurroundingTextInCodePoints(beforeLength, afterLength)
                     }
 
@@ -1118,7 +1095,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                             when (event.keyCode) {
                                 KeyEvent.KEYCODE_DEL -> {
                                     sendImeBridgeDelete(1)
-                                    if (composingText.isNotEmpty()) composingText = composingText.dropLast(1)
                                 }
                                 KeyEvent.KEYCODE_ENTER -> sendImeBridgeText("\n")
                                 else -> event.unicodeChar.takeIf { it > 0 }?.let {
@@ -1606,30 +1582,39 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val displayId = virtualDisplayController?.displayId ?: -1
         if (displayId < 0 || text.isEmpty()) return
         keyboardInputExecutor.execute {
-            // Prefer real KeyEvents injected directly into the target display. This avoids
-            // relying on shell "input text", which can silently miss IME-composed text.
-            val events = runCatching {
-                KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(text.toCharArray())
-            }.getOrNull()
-            val injected = if (!events.isNullOrEmpty()) {
-                virtualDisplayController?.injectKeyEvents(
-                    IntArray(events.size) { events[it].action },
-                    IntArray(events.size) { events[it].keyCode },
-                    IntArray(events.size) { events[it].metaState }
-                ) ?: false
-            } else false
+            // Forward committed text through Android's display-targeted input command.
+            // This keeps Gboard's composing revisions out of the target app and avoids
+            // rebuilding KeyEvents while losing the original character information.
+            val normalized = text.replace("\\r\\n", "\\n").replace('\\r', '\\n')
+            val chunks = normalized.split('\\n')
+            var accepted = true
+            chunks.forEachIndexed { index, chunk ->
+                if (chunk.isNotEmpty()) {
+                    val encoded = chunk.replace("%", "%25").replace(" ", "%s")
+                    val sent = shizukuBridge.runShellCommand(
+                        "input -d $displayId text ${shellQuote(encoded)}"
+                    )
+                    if (!sent) accepted = false
+                }
+                if (index < chunks.lastIndex) {
+                    if (!shizukuBridge.runShellCommand("input -d $displayId keyevent 66")) {
+                        accepted = false
+                    }
+                }
+            }
 
-            if (!injected) {
-                // Fallback for characters that the virtual keyboard map cannot represent.
+            // Paste is a compatibility fallback for characters the platform input command
+            // cannot encode (for example some emoji and complex scripts).
+            if (!accepted) {
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                val accepted = runCatching {
+                accepted = runCatching {
                     clipboard.setPrimaryClip(ClipData.newPlainText("Saku keyboard", text))
                     shizukuBridge.runShellCommand("input -d $displayId keyevent 279")
                 }.getOrDefault(false)
-                if (!accepted) runOnUiThread {
-                    appendRuntimeLog("Teks Gboard gagal dikirim ke display $displayId: ${shizukuBridge.getLastError()}")
-                    status.text = "Input Gboard gagal • pastikan aplikasi tujuan aktif di virtual display."
-                }
+            }
+            if (!accepted) runOnUiThread {
+                appendRuntimeLog("Teks Gboard gagal dikirim ke display $displayId: ${shizukuBridge.getLastError()}")
+                status.text = "Input Gboard gagal • periksa fokus aplikasi dan izin Shizuku."
             }
         }
     }
