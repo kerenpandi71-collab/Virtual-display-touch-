@@ -27,6 +27,7 @@ import org.lsposed.hiddenapibypass.HiddenApiBypass
  */
 class ShizukuUserService() : IVirtualDisplayService.Stub() {
     private var serviceContext: Context? = null
+    @Volatile private var taskWindowOrganizer: Any? = null
     private var virtualDisplay: VirtualDisplay? = null
     @Volatile private var lastError: String = "Belum ada operasi."
     private var mouseButtonDownTime: Long = 0L
@@ -752,109 +753,135 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         }
     }
 
-    /** Reads tasks using both ActivityManager views and associates them with their display. */
-    override fun getRecentTasks(displayId: Int): String {
-        if (displayId !in 0..10000) return "Display ID tidak valid."
+    // Forkdex-style task overview backend: structured ActivityTaskManager task records
+    // and WindowContainerTransaction operations against the existing task tokens.
+    private fun frameworkTaskService(): Any {
+        enableHiddenApiAccess()
+        val manager = Class.forName("android.app.ActivityTaskManager")
+        return manager.getDeclaredMethod("getService").apply { isAccessible = true }
+            .invoke(null) ?: throw IllegalStateException("ActivityTaskManager service tidak tersedia")
+    }
+
+    private fun frameworkTasks(displayId: Int): List<Any> {
+        require(displayId >= 0) { "Display ID tidak valid: $displayId" }
+        val service = frameworkTaskService()
+        val result = service.javaClass.getMethod(
+            "getTasks", Int::class.javaPrimitiveType,
+            Boolean::class.javaPrimitiveType, Boolean::class.javaPrimitiveType,
+            Int::class.javaPrimitiveType
+        ).invoke(service, 100, false, false, displayId)
+        return (result as? List<*>)?.filterNotNull()
+            ?: throw IllegalStateException("ActivityTaskManager tidak mengembalikan daftar task")
+    }
+
+    private fun taskInt(task: Any, name: String): Int =
+        task.javaClass.getField(name).getInt(task)
+
+    private fun taskComponent(task: Any): String? {
+        val component = runCatching { task.javaClass.getField("topActivity").get(task) }.getOrNull()
+            ?: runCatching { task.javaClass.getField("baseActivity").get(task) }.getOrNull()
+            ?: return null
+        val value = component.javaClass.getMethod("flattenToShortString").invoke(component) as? String
+        return value?.takeIf { it.matches(Regex("""[A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+""")) }
+    }
+
+    private fun verifiedOpenTask(displayId: Int, taskId: Int): Pair<Any, String>? {
+        if (displayId < 0 || taskId <= 0) return null
+        val task = frameworkTasks(displayId).firstOrNull {
+            runCatching { taskInt(it, "taskId") == taskId }.getOrDefault(false)
+        } ?: return null
+        return task to (taskComponent(task) ?: return null)
+    }
+
+    override fun getOpenTasks(displayId: Int): String {
         return try {
-            // The activities dump contains display/root-task context; recents provides a second
-            // task-ID source on Android builds whose activities formatting differs.
-            val activities = runShizukuShell(
-                "dumpsys activity activities",
-                timeoutMs = 10000L,
-                maxCharacters = 120000
-            )
-            if (activities.first != 0) {
-                lastError = "Gagal membaca ActivityManager (exit=${activities.first}): ${activities.second.take(700)}"
-                return lastError
-            }
-            val recents = runShizukuShell(
-                "dumpsys activity recents",
-                timeoutMs = 8000L,
-                maxCharacters = 80000
-            )
-            val taskHeader = Regex("""(?i)Task\{[^}]*?#([0-9]+)[^}]*?\}""")
-            val displayMarker = Regex(
-                """(?i)(?:mDisplayId|displayId|display\s*id)\s*[=:]\s*([0-9]+)|display\s*#\s*([0-9]+)"""
-            )
-            val componentPattern = Regex("""[A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+""")
-            val found = linkedMapOf<Int, String>()
-            val lines = activities.second.lines()
-            var contextLines = mutableListOf<String>()
-            var taskLines = mutableListOf<String>()
-            var currentTaskId: Int? = null
-
-            fun idsIn(source: String): Set<Int> = displayMarker.findAll(source).mapNotNull {
-                (it.groupValues.getOrNull(1)?.takeIf(String::isNotBlank)
-                    ?: it.groupValues.getOrNull(2))?.toIntOrNull()
-            }.toSet()
-
-            fun flushTask() {
-                val id = currentTaskId ?: return
-                val joined = (contextLines + taskLines).joinToString("\n")
-                val ownIds = idsIn(taskLines.joinToString("\n"))
-                val contextIds = idsIn(contextLines.joinToString("\n"))
-                if (displayId in ownIds || (ownIds.isEmpty() && displayId in contextIds)) {
-                    val component = componentPattern.find(taskLines.joinToString("\n"))?.value
-                        ?: componentPattern.find(joined)?.value
-                    found[id] = "taskId=$id" + (component?.let { " • $it" } ?: "")
-                }
-                taskLines.clear()
-                currentTaskId = null
-            }
-
-            for (line in lines) {
-                val header = taskHeader.find(line)
-                if (header != null) {
-                    flushTask()
-                    currentTaskId = header.groupValues[1].toIntOrNull()
-                    taskLines.add(line)
-                    continue
-                }
-                // RootTask/display headers delimit the inherited display context.
-                if (line.contains("RootTask", true) || line.contains("Display #", true)) {
-                    flushTask()
-                    contextLines.clear()
-                    contextLines.add(line)
-                    continue
-                }
-                if (currentTaskId == null) {
-                    if (contextLines.size >= 45) contextLines.removeAt(0)
-                    contextLines.add(line)
-                } else if (taskLines.size < 100) {
-                    taskLines.add(line)
-                }
-            }
-            flushTask()
-
-            // Fallback: task IDs from recents are included only when the activities dump
-            // explicitly confirms the requested display, preventing main-display leakage.
-            if (found.isEmpty() && recents.first == 0) {
-                val recentIds = taskHeader.findAll(recents.second).mapNotNull {
-                    it.groupValues[1].toIntOrNull()
-                }.toSet()
-                if (recentIds.isNotEmpty()) {
-                    lastError = "Task ditemukan di Recent Android (${recentIds.size}), tetapi format display pada dumpsys activities belum dapat dipastikan untuk display $displayId. Periksa Diagnostics."
-                    return lastError
-                }
-            }
-
-            if (found.isNotEmpty()) {
-                lastError = "Recent display $displayId • ${found.size} task terbaca."
-                found.values.take(30).joinToString("\n")
-            } else {
-                val totalActivityTasks = taskHeader.findAll(activities.second).count()
-                lastError = if (totalActivityTasks > 0) {
-                    "Ada $totalActivityTasks task aktif, tetapi Android tidak memberi penanda display $displayId yang bisa diverifikasi. Bukan berarti daftar task kosong."
-                } else if (activities.second.length >= 119000) {
-                    "Output ActivityManager terpotong sebelum seluruh task terbaca. Coba lagi setelah mengurangi aplikasi aktif."
-                } else {
-                    "ActivityManager tidak melaporkan task aktif pada dump ini untuk display $displayId."
-                }
-                lastError
-            }
+            val ownPackage = serviceContext?.packageName ?: "com.kerenpandi.virtualdisplaytouch"
+            val entries = frameworkTasks(displayId).mapNotNull { task ->
+                val id = runCatching { taskInt(task, "taskId") }.getOrNull() ?: return@mapNotNull null
+                val component = taskComponent(task) ?: return@mapNotNull null
+                if (component.substringBefore('/') == ownPackage) return@mapNotNull null
+                "taskId=$id • $component"
+            }.distinctBy { it.substringBefore(' ') }.take(50)
+            lastError = "Open Tasks Forkdex • display=$displayId • count=" + entries.size
+            if (entries.isEmpty()) "" else entries.joinToString("\n")
         } catch (error: Throwable) {
-            lastError = "Gagal membaca Recent: ${error.javaClass.simpleName}: ${error.message ?: "tanpa detail"}"
-            Log.w(TAG, lastError, error)
+            val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error
+            lastError = "Gagal memuat Open Tasks: " + cause.javaClass.simpleName + ": " + (cause.message ?: "tanpa detail")
+            Log.w(TAG, lastError, cause)
+            ""
+        }
+    }
+
+    private fun applyForkdexWindowTransaction(task: Any, remove: Boolean) {
+        val token = task.javaClass.getField("token").get(task)
+            ?: throw IllegalStateException("Task token tidak tersedia")
+        val tokenClass = Class.forName("android.window.WindowContainerToken")
+        val transactionClass = Class.forName("android.window.WindowContainerTransaction")
+        val transaction = transactionClass.getConstructor().newInstance()
+        if (remove) {
+            transactionClass.getMethod("removeTask", tokenClass).invoke(transaction, token)
+        } else {
+            transactionClass.getMethod(
+                "reorder", tokenClass, Boolean::class.javaPrimitiveType,
+                Boolean::class.javaPrimitiveType
+            ).invoke(transaction, token, true, true)
+        }
+
+        // Match Forkdex: share WM's surface transaction queue and submit via ATM's WOC.
+        val organizerClass = Class.forName("android.window.WindowOrganizer")
+        val organizer = taskWindowOrganizer ?: synchronized(this) {
+            taskWindowOrganizer ?: organizerClass.getConstructor().newInstance().also { created ->
+                val shared = organizerClass.getMethod("shareTransactionQueue").invoke(created) as? Boolean
+                if (shared != true) throw IllegalStateException("WindowManager transaction queue tidak tersedia")
+                taskWindowOrganizer = created
+            }
+        }
+        val service = frameworkTaskService()
+        val controller = service.javaClass.getMethod("getWindowOrganizerController").invoke(service)
+            ?: throw IllegalStateException("WindowOrganizerController tidak tersedia")
+        controller.javaClass.getMethod("applyTransaction", transactionClass).invoke(controller, transaction)
+    }
+
+    override fun focusOpenTask(displayId: Int, taskId: Int): String {
+        return try {
+            val (task, component) = verifiedOpenTask(displayId, taskId)
+                ?: return "Task #$taskId tidak ditemukan pada display $displayId."
+            // Use ATM's native task focus operation first; it transfers the selected task
+            // to the foreground on its existing display. WCT reorder is the fallback.
+            val atm = frameworkTaskService()
+            val moveToFront = atm.javaClass.methods.firstOrNull { method ->
+                method.name == "moveTaskToFront" && method.parameterTypes.size == 3 &&
+                    method.parameterTypes[0] == Int::class.javaPrimitiveType &&
+                    method.parameterTypes[1] == Int::class.javaPrimitiveType
+            }
+            val moved = if (moveToFront != null) runCatching {
+                moveToFront.invoke(atm, taskId, 0, null)
+                true
+            }.getOrDefault(false) else false
+            if (!moved) applyForkdexWindowTransaction(task, false)
+            lastError = "Task #$taskId ($component) difokuskan."
+            lastError
+        } catch (error: Throwable) {
+            val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error
+            lastError = "Gagal membuka task #$taskId: " + cause.javaClass.simpleName + ": " + (cause.message ?: "tanpa detail")
+            Log.w(TAG, lastError, cause)
+            lastError
+        }
+    }
+
+    override fun closeOpenTask(displayId: Int, taskId: Int): String {
+        return try {
+            val (task, component) = verifiedOpenTask(displayId, taskId)
+                ?: return "Task #$taskId tidak ditemukan pada display $displayId."
+            val ownPackage = serviceContext?.packageName ?: "com.kerenpandi.virtualdisplaytouch"
+            if (component.substringBefore('/') == ownPackage) return "Task Virtual Display Touch dilindungi."
+            applyForkdexWindowTransaction(task, true)
+            lastError = "Task #$taskId ditutup."
+            lastError
+        } catch (error: Throwable) {
+            val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error
+            lastError = "Gagal menutup task #$taskId: " + cause.javaClass.simpleName + ": " + (cause.message ?: "tanpa detail")
+            Log.w(TAG, lastError, cause)
             lastError
         }
     }

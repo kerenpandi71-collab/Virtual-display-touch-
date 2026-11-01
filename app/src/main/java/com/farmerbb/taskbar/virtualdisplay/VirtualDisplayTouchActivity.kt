@@ -1,6 +1,8 @@
 package com.farmerbb.taskbar.virtualdisplay
 
 import android.app.AlertDialog
+import android.app.Presentation
+import android.hardware.display.DisplayManager
 
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -67,11 +69,14 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var resolutionWidthInput: EditText
     private lateinit var resolutionHeightInput: EditText
     private lateinit var resolutionDpiInput: EditText
+    private var resolutionEditorLandscape = false
+    private lateinit var resolutionProfileLabel: TextView
     private lateinit var touchpadSizeValue: TextView
     private lateinit var sensitivityValue: TextView
     private lateinit var touchpadSizeSeekBar: SeekBar
     private lateinit var shizukuBridge: ShizukuBridge
     private var virtualDisplayController: VirtualDisplayController? = null
+    private var recentAppsPresentation: Presentation? = null
     private var preview: SurfaceView? = null
     private var cursorOverlay: View? = null
     private val mouseInputExecutor = Executors.newSingleThreadExecutor { runnable ->
@@ -86,6 +91,12 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var keyboardPanel: LinearLayout
     private lateinit var imeBridgeEditText: EditText
     private var keyboardPanelVisible = false
+    private var gamepadModeActive = false
+    private var assistantBallView: TextView? = null
+    private var assistantBallPortraitXPercent = 95
+    private var assistantBallPortraitYPercent = 50
+    private var assistantBallLandscapeXPercent = 95
+    private var assistantBallLandscapeYPercent = 50
     @Volatile private var systemKeyboardRequested = false
     private var keyboardWidthPercent = 100
     private var keyboardHeightDp = 240
@@ -111,9 +122,14 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var previewSizeValue: TextView
     private lateinit var panelPositionValue: TextView
     private var previewSizePercent = 100
+    private var previewSizePortraitPercent = 100
+    private var previewSizeLandscapePercent = 100
+    private var keyboardLandscapeWidthPercent = 100
+    private var keyboardLandscapeHeightDp = 240
     private var panelPositionPercent = 0
     private var directTouchDown = false
-    private var directTouchEnabled = true
+    // 0 = trackpad on preview, 1 = direct touch, 2 = disabled
+    private var previewInputMode = 1
     private val gestureHandler = Handler(Looper.getMainLooper())
     private var longPressTask: Runnable? = null
     private var touchpadFingerDown = false
@@ -156,9 +172,21 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val landscapeAtLaunch = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val displayPrefs = getSharedPreferences("saku_desktop_resolution", Context.MODE_PRIVATE)
+        val resolutionSuffix = if (landscapeAtLaunch) "landscape" else "portrait"
+        targetWidth = displayPrefs.getInt("${resolutionSuffix}_width", 960).coerceIn(320, 2560)
+        targetHeight = displayPrefs.getInt("${resolutionSuffix}_height", 820).coerceIn(320, 2560)
+        targetDpi = displayPrefs.getInt("${resolutionSuffix}_dpi", 160).coerceIn(120, 640)
+        resolutionEditorLandscape = landscapeAtLaunch
+        previewSizePortraitPercent = displayPrefs.getInt("preview_portrait_percent", 100).coerceIn(50, 100)
+        previewSizeLandscapePercent = displayPrefs.getInt("preview_landscape_percent", 100).coerceIn(50, 100)
+        previewSizePercent = if (landscapeAtLaunch) previewSizeLandscapePercent else previewSizePortraitPercent
         val keyboardPrefs = getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE)
         keyboardWidthPercent = keyboardPrefs.getInt("width_percent", 100).coerceIn(55, 100)
         keyboardHeightDp = keyboardPrefs.getInt("height_dp", 240).coerceIn(170, 360)
+        keyboardLandscapeWidthPercent = keyboardPrefs.getInt("landscape_width_percent", 100).coerceIn(55, 100)
+        keyboardLandscapeHeightDp = keyboardPrefs.getInt("landscape_height_dp", 240).coerceIn(170, 360)
         keyboardHasCustomPosition = keyboardPrefs.getBoolean("custom_position", false)
         keyboardLandscapeHasCustomPosition = keyboardPrefs.getBoolean("landscape_custom_position", false)
         keyboardLandscapeXPercent = keyboardPrefs.getInt("landscape_x_percent", 100).coerceIn(0, 100)
@@ -200,12 +228,15 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         applyImmersiveMode()
 
         // SurfaceView tetap memenuhi root; toolbar, kursor, touchpad, dan log adalah overlay.
-        val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(7, 24, 45)) }
+        val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(5, 10, 32)) }
         preview = SurfaceView(this).apply {
             contentDescription = "Desktop virtual display 960 x 820"
             setOnTouchListener { view, event ->
-                if (!directTouchEnabled) return@setOnTouchListener false
-                handleDirectTouch(event, view.width, view.height)
+                when (previewInputMode) {
+                    0 -> handleTouch(event, view.width, view.height)
+                    1 -> handleDirectTouch(event, view.width, view.height)
+                    else -> false
+                }
             }
             holder.setFixedSize(targetWidth, targetHeight)
             holder.addCallback(object : SurfaceHolder.Callback {
@@ -253,7 +284,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             background = roundedPanel(220, 12)
         }
         topBar.addView(TextView(this).apply {
-            text = "SAKU DESKTOP  •  960 × 820"
+            text = "CYBER DECK  •  VIRTUAL DISPLAY TOUCH"
             textSize = 12f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
@@ -302,15 +333,19 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         actions.addView(directTouchButton, LinearLayout.LayoutParams(0, dp(34), 0.78f))
         topBar.addView(actions)
         val previewSizeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        previewSizeValue = TextView(this).apply { text = "Desktop 100%"; textSize = 9f; setTextColor(Color.WHITE) }
+        previewSizeValue = TextView(this).apply { text = "Desktop ${previewSizePercent}%"; textSize = 9f; setTextColor(Color.WHITE) }
         previewSizeRow.addView(previewSizeValue, LinearLayout.LayoutParams(dp(84), dp(26)))
         previewSizeSeekBar = SeekBar(this).apply {
             max = 50
-            progress = 50
+            progress = previewSizePercent - 50
             contentDescription = "Ukuran preview desktop 50 sampai 100 persen"
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     previewSizePercent = 50 + progress
+                    if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) previewSizeLandscapePercent = previewSizePercent else previewSizePortraitPercent = previewSizePercent
+                    getSharedPreferences("saku_desktop_resolution", Context.MODE_PRIVATE).edit()
+                        .putInt("preview_portrait_percent", previewSizePortraitPercent)
+                        .putInt("preview_landscape_percent", previewSizeLandscapePercent).apply()
                     previewSizeValue.text = "Desktop ${previewSizePercent}%"
                     updateDesktopLayout(root.width, root.height)
                 }
@@ -339,6 +374,15 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         panelPositionRow.addView(panelPositionSeekBar, LinearLayout.LayoutParams(0, dp(28), 1f))
         topBar.addView(panelPositionRow)
+        val resolutionProfileRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        resolutionProfileLabel = TextView(this).apply {
+            text = if (resolutionEditorLandscape) "Profil: Landscape" else "Profil: Portrait"
+            textSize = 10f; setTextColor(Color.WHITE)
+        }
+        resolutionProfileRow.addView(resolutionProfileLabel, LinearLayout.LayoutParams(0, dp(30), 1f))
+        resolutionProfileRow.addView(actionButton("Portrait") { selectResolutionProfile(false) }, LinearLayout.LayoutParams(dp(86), dp(30)))
+        resolutionProfileRow.addView(actionButton("Landscape") { selectResolutionProfile(true) }, LinearLayout.LayoutParams(dp(92), dp(30)))
+        topBar.addView(resolutionProfileRow)
         val resolutionRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         fun resolutionInput(initial: String, hintText: String, widthDp: Int) = EditText(this).apply {
             setText(initial); hint = hintText; textSize = 10f; setSingleLine(true)
@@ -348,9 +392,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             background = roundedPanel(180, 6)
             layoutParams = LinearLayout.LayoutParams(dp(widthDp), dp(32)).apply { rightMargin = dp(3) }
         }
-        resolutionWidthInput = resolutionInput("960", "Lebar", 62)
-        resolutionHeightInput = resolutionInput("820", "Tinggi", 58)
-        resolutionDpiInput = resolutionInput("160", "DPI", 48)
+        resolutionWidthInput = resolutionInput(targetWidth.toString(), "Lebar", 62)
+        resolutionHeightInput = resolutionInput(targetHeight.toString(), "Tinggi", 58)
+        resolutionDpiInput = resolutionInput(targetDpi.toString(), "DPI", 48)
         resolutionRow.addView(resolutionWidthInput)
         resolutionRow.addView(resolutionHeightInput)
         resolutionRow.addView(resolutionDpiInput)
@@ -448,15 +492,16 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         })
         var gamepadOverlay: VirtualMobaGamepadView? = null
         val assistantBall = TextView(this).apply {
-            text = "S"
-            textSize = 18f
+            text = "V"
+            textSize = 19f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.argb(225, 24, 104, 164))
-                setStroke(dp(2), Color.argb(220, 180, 230, 255))
+                setOrientation(GradientDrawable.Orientation.TL_BR)
+                setColors(intArrayOf(Color.rgb(0, 220, 255), Color.rgb(68, 54, 235), Color.rgb(148, 42, 255)))
+                setStroke(dp(2), Color.rgb(116, 239, 255))
             }
             elevation = dp(12).toFloat()
             contentDescription = "Bola asisten Saku Desktop. Ketuk untuk pengaturan, seret untuk memindahkan."
@@ -474,8 +519,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     ballDownX = event.rawX; ballDownY = event.rawY
-                    ballStartX = if (ballParams.gravity and Gravity.RIGHT == Gravity.RIGHT) (root.width - view.width - ballParams.rightMargin).coerceAtLeast(0).toFloat() else ballParams.leftMargin.toFloat()
-                    ballStartY = if (ballParams.gravity and Gravity.CENTER_VERTICAL == Gravity.CENTER_VERTICAL) ((root.height - view.height) / 2f) else ballParams.topMargin.toFloat()
+                    ballStartX = view.left.toFloat().coerceIn(0f, (root.width - view.width).coerceAtLeast(0).toFloat())
+                    ballStartY = view.top.toFloat().coerceIn(0f, (root.height - view.height).coerceAtLeast(0).toFloat())
                     ballDragged = false
                     true
                 }
@@ -488,6 +533,22 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         ballParams.leftMargin = (ballStartX + dx).toInt().coerceIn(0, (root.width - view.width).coerceAtLeast(0))
                         ballParams.topMargin = (ballStartY + dy).toInt().coerceIn(0, (root.height - view.height).coerceAtLeast(0))
                         root.updateViewLayout(view, ballParams)
+                        val maxX = (root.width - view.width).coerceAtLeast(1)
+                        val maxY = (root.height - view.height).coerceAtLeast(1)
+                        val xPercent = (ballParams.leftMargin.toFloat() / maxX * 100).toInt().coerceIn(0, 100)
+                        val yPercent = (ballParams.topMargin.toFloat() / maxY * 100).toInt().coerceIn(0, 100)
+                        val landscapeNow = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                        if (landscapeNow) {
+                            assistantBallLandscapeXPercent = xPercent
+                            assistantBallLandscapeYPercent = yPercent
+                        } else {
+                            assistantBallPortraitXPercent = xPercent
+                            assistantBallPortraitYPercent = yPercent
+                        }
+                        getSharedPreferences("saku_assistant_ball", Context.MODE_PRIVATE).edit()
+                            .putInt(if (landscapeNow) "landscape_x" else "portrait_x", xPercent)
+                            .putInt(if (landscapeNow) "landscape_y" else "portrait_y", yPercent)
+                            .apply()
                     }
                     true
                 }
@@ -518,16 +579,20 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                                     } else if ((virtualDisplayController?.displayId ?: -1) < 0) {
                                         status.text = "Buat virtual display terlebih dahulu."
                                     } else {
-                                        gamepadOverlay?.visibility = if (gamepadOverlay?.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-                                        status.text = if (gamepadOverlay?.visibility == View.VISIBLE) "Virtual Game Pad aktif." else "Virtual Game Pad disembunyikan."
+                                        gamepadModeActive = gamepadOverlay?.visibility != View.VISIBLE
+                                        gamepadOverlay?.visibility = if (gamepadModeActive) View.VISIBLE else View.GONE
+                                        status.text = if (gamepadModeActive) "Virtual Game Pad aktif." else "Virtual Game Pad disembunyikan."
+                                        updateDesktopLayout(root.width, root.height)
                                     }
                                 }
                                 6 -> {
                                     if (gamepadOverlay == null) {
                                         status.text = "Tampilkan Virtual Game Pad dahulu."
                                     } else {
+                                        gamepadModeActive = true
                                         gamepadOverlay?.visibility = View.VISIBLE
                                         gamepadOverlay?.setEditMode(true)
+                                        updateDesktopLayout(root.width, root.height)
                                         AlertDialog.Builder(this)
                                             .setTitle("Atur posisi Game Pad")
                                             .setMessage("Seret analog dan tombol ke posisi yang kamu inginkan. Posisi tersimpan otomatis.")
@@ -605,6 +670,23 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             }
         }
         root.addView(assistantBall, ballParams)
+        assistantBallView = assistantBall
+        val ballPrefs = getSharedPreferences("saku_assistant_ball", Context.MODE_PRIVATE)
+        assistantBallPortraitXPercent = ballPrefs.getInt("portrait_x", 95).coerceIn(0, 100)
+        assistantBallPortraitYPercent = ballPrefs.getInt("portrait_y", 50).coerceIn(0, 100)
+        assistantBallLandscapeXPercent = ballPrefs.getInt("landscape_x", 95).coerceIn(0, 100)
+        assistantBallLandscapeYPercent = ballPrefs.getInt("landscape_y", 50).coerceIn(0, 100)
+        assistantBall.post {
+            val maxX = (root.width - assistantBall.width).coerceAtLeast(0)
+            val maxY = (root.height - assistantBall.height).coerceAtLeast(0)
+            val landscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            val xPercent = if (landscape) assistantBallLandscapeXPercent else assistantBallPortraitXPercent
+            val yPercent = if (landscape) assistantBallLandscapeYPercent else assistantBallPortraitYPercent
+            ballParams.gravity = Gravity.TOP or Gravity.START
+            ballParams.leftMargin = (maxX * xPercent / 100f).toInt()
+            ballParams.topMargin = (maxY * yPercent / 100f).toInt()
+            root.updateViewLayout(assistantBall, ballParams)
+        }
         gamepadOverlay = VirtualMobaGamepadView(
             this,
             { virtualDisplayController },
@@ -695,14 +777,17 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                             keyboardLandscapeXPercent = (keyboardPositionX.toFloat() / maxX * 100).toInt().coerceIn(0, 100)
                             keyboardLandscapeYPercent = (keyboardPositionY.toFloat() / maxY * 100).toInt().coerceIn(0, 100)
                         }
-                        getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE).edit()
-                            .putBoolean("custom_position", if (landscapeNow) keyboardHasCustomPosition else true)
-                            .putInt("position_x", keyboardPositionX)
-                            .putInt("position_y", keyboardPositionY)
-                            .putBoolean("landscape_custom_position", if (landscapeNow) true else keyboardLandscapeHasCustomPosition)
-                            .putInt("landscape_x_percent", keyboardLandscapeXPercent)
-                            .putInt("landscape_y_percent", keyboardLandscapeYPercent)
-                            .apply()
+                        val keyboardPositionPrefs = getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE).edit()
+                        if (landscapeNow) {
+                            keyboardPositionPrefs.putBoolean("landscape_custom_position", true)
+                                .putInt("landscape_x_percent", keyboardLandscapeXPercent)
+                                .putInt("landscape_y_percent", keyboardLandscapeYPercent)
+                        } else {
+                            keyboardPositionPrefs.putBoolean("custom_position", true)
+                                .putInt("position_x", keyboardPositionX)
+                                .putInt("position_y", keyboardPositionY)
+                        }
+                        keyboardPositionPrefs.apply()
                         true
                     }
                     else -> true
@@ -711,22 +796,22 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         keyboardTitle.addView(keyboardDragHandle, LinearLayout.LayoutParams(0, dp(24), 1f))
         keyboardTitle.addView(actionButton("W−") {
-            keyboardWidthPercent = (keyboardWidthPercent - 5).coerceAtLeast(55)
+            if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) keyboardLandscapeWidthPercent = (keyboardLandscapeWidthPercent - 5).coerceAtLeast(55) else keyboardWidthPercent = (keyboardWidthPercent - 5).coerceAtLeast(55)
             persistKeyboardSize()
             updateDesktopLayout(root.width, root.height)
         }, LinearLayout.LayoutParams(dp(35), dp(27)))
         keyboardTitle.addView(actionButton("W+") {
-            keyboardWidthPercent = (keyboardWidthPercent + 5).coerceAtMost(100)
+            if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) keyboardLandscapeWidthPercent = (keyboardLandscapeWidthPercent + 5).coerceAtMost(100) else keyboardWidthPercent = (keyboardWidthPercent + 5).coerceAtMost(100)
             persistKeyboardSize()
             updateDesktopLayout(root.width, root.height)
         }, LinearLayout.LayoutParams(dp(35), dp(27)))
         keyboardTitle.addView(actionButton("H−") {
-            keyboardHeightDp = (keyboardHeightDp - 15).coerceAtLeast(170)
+            if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) keyboardLandscapeHeightDp = (keyboardLandscapeHeightDp - 15).coerceAtLeast(170) else keyboardHeightDp = (keyboardHeightDp - 15).coerceAtLeast(170)
             persistKeyboardSize()
             updateDesktopLayout(root.width, root.height)
         }, LinearLayout.LayoutParams(dp(35), dp(27)))
         keyboardTitle.addView(actionButton("H+") {
-            keyboardHeightDp = (keyboardHeightDp + 15).coerceAtMost(360)
+            if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) keyboardLandscapeHeightDp = (keyboardLandscapeHeightDp + 15).coerceAtMost(360) else keyboardHeightDp = (keyboardHeightDp + 15).coerceAtMost(360)
             persistKeyboardSize()
             updateDesktopLayout(root.width, root.height)
         }, LinearLayout.LayoutParams(dp(35), dp(27)))
@@ -827,17 +912,14 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             rightMargin = dp(5)
         })
         panelHeader.addView(TextView(this).apply {
-            text = "TRACKPAD • 1 jari kursor / tap klik / 2 jari scroll"
+            text = "CYBER TRACKPAD  •  1 jari gerak  /  2 jari scroll"
             textSize = 9f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             maxLines = 1
         }, LinearLayout.LayoutParams(0, dp(28), 1f))
-        panelHeader.addView(actionButton("🖱 Kursor") {
-            directTouchEnabled = false
-            directTouchButton.text = "Touch: OFF"
-            bottomPanel.visibility = View.VISIBLE
-            status.text = "Mode trackpad aktif."
+        panelHeader.addView(actionButton("🖱 Preview") {
+            setPreviewInputMode(0)
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(28)))
         panelHeader.addView(actionButton("⌨") {
             keyboardPanelVisible = !keyboardPanelVisible
@@ -858,31 +940,32 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     touchpadMoveHandle.parent?.requestDisallowInterceptTouchEvent(true)
-                    touchpadDragOriginX = bottomPanel.left.coerceIn(0,
-                        (root.width - bottomPanel.width).coerceAtLeast(0))
-                    touchpadDragOriginY = bottomPanel.top.coerceIn(0,
-                        (root.height - bottomPanel.height).coerceAtLeast(0))
+                    // Match the keyboard's drag behavior: capture the actual view position,
+                    // then apply every raw-pointer delta directly (no threshold-induced lag).
+                    touchpadDragOriginX = bottomPanel.x.toInt().coerceIn(
+                        0, (root.width - bottomPanel.width).coerceAtLeast(0))
+                    touchpadDragOriginY = bottomPanel.y.toInt().coerceIn(
+                        0, (root.height - bottomPanel.height).coerceAtLeast(0))
                     touchpadDragStartX = event.rawX
                     touchpadDragStartY = event.rawY
-                    touchpadDragStarted = false
+                    touchpadDragStarted = true
+                    if (landscapeNow) touchpadLandscapeHasCustomPosition = true
+                    else touchpadPortraitHasCustomPosition = true
+                    params.gravity = Gravity.TOP or Gravity.START
+                    params.leftMargin = touchpadDragOriginX
+                    params.topMargin = touchpadDragOriginY
+                    params.rightMargin = 0
+                    params.bottomMargin = 0
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val deltaX = event.rawX - touchpadDragStartX
-                    val deltaY = event.rawY - touchpadDragStartY
-                    if (!touchpadDragStarted) {
-                        if (kotlin.math.abs(deltaX) < dp(6) && kotlin.math.abs(deltaY) < dp(6)) {
-                            return@setOnTouchListener true
-                        }
-                        touchpadDragStarted = true
-                        if (landscapeNow) touchpadLandscapeHasCustomPosition = true
-                        else touchpadPortraitHasCustomPosition = true
-                    }
                     val maxX = (root.width - bottomPanel.width).coerceAtLeast(0)
                     val maxY = (root.height - bottomPanel.height).coerceAtLeast(0)
-                    val x = (touchpadDragOriginX + deltaX).toInt().coerceIn(0, maxX)
-                    val y = (touchpadDragOriginY + deltaY).toInt().coerceIn(0, maxY)
-                    params.gravity = Gravity.TOP or Gravity.LEFT
+                    val x = (touchpadDragOriginX + event.rawX - touchpadDragStartX)
+                        .toInt().coerceIn(0, maxX)
+                    val y = (touchpadDragOriginY + event.rawY - touchpadDragStartY)
+                        .toInt().coerceIn(0, maxY)
+                    params.gravity = Gravity.TOP or Gravity.START
                     params.leftMargin = x
                     params.topMargin = y
                     params.rightMargin = 0
@@ -891,20 +974,18 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (touchpadDragStarted) {
-                        val maxX = (root.width - bottomPanel.width).coerceAtLeast(1)
-                        val maxY = (root.height - bottomPanel.height).coerceAtLeast(1)
-                        val xPercent = (params.leftMargin.toFloat() / maxX * 100).toInt().coerceIn(0, 100)
-                        val yPercent = (params.topMargin.toFloat() / maxY * 100).toInt().coerceIn(0, 100)
-                        if (landscapeNow) {
-                            touchpadLandscapeXPercent = xPercent
-                            touchpadLandscapeYPercent = yPercent
-                        } else {
-                            touchpadPortraitXPercent = xPercent
-                            touchpadPortraitYPercent = yPercent
-                        }
-                        persistTouchpadSettings()
+                    val maxX = (root.width - bottomPanel.width).coerceAtLeast(1)
+                    val maxY = (root.height - bottomPanel.height).coerceAtLeast(1)
+                    val xPercent = (params.leftMargin.toFloat() / maxX * 100).toInt().coerceIn(0, 100)
+                    val yPercent = (params.topMargin.toFloat() / maxY * 100).toInt().coerceIn(0, 100)
+                    if (landscapeNow) {
+                        touchpadLandscapeXPercent = xPercent
+                        touchpadLandscapeYPercent = yPercent
+                    } else {
+                        touchpadPortraitXPercent = xPercent
+                        touchpadPortraitYPercent = yPercent
                     }
+                    persistTouchpadSettings()
                     touchpadDragStarted = false
                     touchpadMoveHandle.parent?.requestDisallowInterceptTouchEvent(false)
                     true
@@ -922,7 +1003,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             LinearLayout.LayoutParams(0, dp(30), 1f))
         bottomPanel.addView(virtualNavRow)
         val stage = FrameLayout(this).apply {
-            setBackgroundColor(Color.rgb(19, 39, 56))
+            setBackgroundColor(Color.rgb(10, 25, 57))
             contentDescription = "Touchpad: gerak 1 jari, tap klik, 2 jari scroll, tahan 1 detik lalu geser untuk drag"
         }
         stage.setOnTouchListener { _, event -> handleTouch(event, stage.width, stage.height) }
@@ -1076,9 +1157,13 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     private fun roundedPanel(alpha: Int, radius: Int) = GradientDrawable().apply {
-        setColor(Color.argb(alpha.coerceIn(0, 255), 7, 25, 45))
+        setOrientation(GradientDrawable.Orientation.TL_BR)
+        setColors(intArrayOf(
+            Color.argb(alpha.coerceIn(0, 255), 12, 27, 68),
+            Color.argb(alpha.coerceIn(0, 255), 7, 13, 42)
+        ))
         cornerRadius = dp(radius).toFloat()
-        setStroke(dp(1), Color.argb(105, 182, 225, 247))
+        setStroke(dp(1), Color.argb(145, 48, 190, 255))
     }
 
     private fun applyImmersiveMode() {
@@ -1099,25 +1184,199 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     private fun showVirtualDisplayRecentTasks() {
+        // Recent is a toggle: tapping the nav button while the overview is visible
+        // dismisses it instead of rebuilding the same presentation.
+        recentAppsPresentation?.let { current ->
+            current.dismiss()
+            if (recentAppsPresentation === current) recentAppsPresentation = null
+            return
+        }
         val displayId = virtualDisplayController?.displayId ?: -1
         if (displayId < 0) {
             status.text = "Mulai virtual display dahulu."
             return
         }
-        status.text = "Membaca aplikasi pada display $displayId…"
+        status.text = "Memuat Recent display $displayId…"
         keyboardInputExecutor.execute {
-            val result = shizukuBridge.getRecentTasks(displayId)
+            val result = shizukuBridge.getOpenTasks(displayId)
             runOnUiThread {
                 appendRuntimeLog("Recent display $displayId\\n$result")
-                AlertDialog.Builder(this)
-                    .setTitle("Recent • Display $displayId")
-                    .setMessage(result)
-                    .setPositiveButton("Perbarui") { _, _ -> showVirtualDisplayRecentTasks() }
-                    .setNegativeButton("Tutup", null)
-                    .show()
-                status.text = "Daftar Recent display $displayId diperbarui."
+                renderRecentAppsGrid(displayId, result)
+                status.text = "Recent display $displayId diperbarui."
             }
         }
+    }
+
+    /** Forkdex-style Open Tasks overview hosted only on the selected virtual display. */
+    private fun renderRecentAppsGrid(displayId: Int, result: String) {
+        val display = (getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).getDisplay(displayId)
+        if (display == null) { status.text = "Virtual display $displayId tidak ditemukan."; return }
+        recentAppsPresentation?.dismiss()
+        val presentation = Presentation(this, display)
+        recentAppsPresentation = presentation
+        val ctx = presentation.context
+        val density = ctx.resources.displayMetrics.density
+        fun d(value: Int) = (value * density).toInt().coerceAtLeast(1)
+
+        data class OpenTask(val id: Int, val component: String, val packageName: String)
+        val tasks = Regex("""taskId=(\d+)\s*•\s*([^\s]+)""")
+            .findAll(result)
+            .mapNotNull { match ->
+                val id = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
+                val component = match.groupValues[2]
+                val packageName = component.substringBefore('/')
+                if (packageName.isBlank()) return@mapNotNull null
+                OpenTask(id, component, packageName)
+            }.distinctBy { it.id }.toList()
+
+        val root = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(d(14), d(14), d(14), d(12))
+            setBackgroundColor(Color.rgb(25, 29, 36))
+            isFocusable = true
+        }
+        val header = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(TextView(ctx).apply {
+            text = "Open tasks (${tasks.size})"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+        }, LinearLayout.LayoutParams(0, d(48), 1f))
+        header.addView(Button(ctx).apply {
+            text = "Refresh"
+            isAllCaps = false
+            setOnClickListener { showVirtualDisplayRecentTasks() }
+        }, LinearLayout.LayoutParams(d(92), d(40)))
+        header.addView(Button(ctx).apply {
+            text = "Tutup"
+            isAllCaps = false
+            setOnClickListener {
+                presentation.dismiss()
+                if (recentAppsPresentation === presentation) recentAppsPresentation = null
+            }
+        }, LinearLayout.LayoutParams(d(76), d(40)))
+        root.addView(header)
+
+        if (tasks.isEmpty()) {
+            root.addView(TextView(ctx).apply {
+                text = if (result.isBlank()) "Tidak ada aplikasi terbuka pada display ini."
+                    else result
+                textSize = 14f
+                setTextColor(Color.LTGRAY)
+                gravity = Gravity.CENTER
+                setPadding(d(20), d(28), d(20), d(28))
+            }, LinearLayout.LayoutParams(-1, 0, 1f))
+        } else {
+            val scroll = ScrollView(ctx).apply { isFillViewport = true }
+            val grid = android.widget.GridLayout(ctx).apply {
+                columnCount = if (ctx.resources.configuration.screenWidthDp >= 900) 4 else 3
+                useDefaultMargins = false
+                alignmentMode = android.widget.GridLayout.ALIGN_BOUNDS
+            }
+            tasks.forEach { task ->
+                val appInfo = try {
+                    packageManager.getApplicationInfo(task.packageName, 0)
+                } catch (_: Throwable) { null }
+                val label = try {
+                    appInfo?.let { packageManager.getApplicationLabel(it).toString() }
+                } catch (_: Throwable) { null } ?: task.packageName
+                val tile = FrameLayout(ctx).apply {
+                    background = GradientDrawable().apply {
+                        cornerRadius = d(6).toFloat()
+                        setColor(Color.rgb(36, 42, 51))
+                        setStroke(d(1), Color.rgb(66, 82, 101))
+                    }
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
+                        presentation.dismiss()
+                        if (recentAppsPresentation === presentation) recentAppsPresentation = null
+                        keyboardInputExecutor.execute {
+                            val message = shizukuBridge.focusOpenTask(displayId, task.id)
+                            runOnUiThread {
+                                status.text = message
+                                appendRuntimeLog(message)
+                                // Do not reopen the overview after selecting an app.
+                                // The selected task should take over the display directly.
+                            }
+                        }
+                    }
+                }
+                val content = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    setPadding(d(8), d(8), d(8), d(6))
+                }
+                content.addView(android.widget.ImageView(ctx).apply {
+                    setImageDrawable(
+                        try { appInfo?.let { packageManager.getApplicationIcon(it) } }
+                        catch (_: Throwable) { null } ?: getDrawable(android.R.drawable.sym_def_app_icon)
+                    )
+                    scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                }, LinearLayout.LayoutParams(d(42), d(42)))
+                content.addView(TextView(ctx).apply {
+                    text = label
+                    textSize = 12f
+                    setTextColor(Color.WHITE)
+                    typeface = Typeface.DEFAULT_BOLD
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    gravity = Gravity.CENTER
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = d(5) })
+                content.addView(TextView(ctx).apply {
+                    text = "Task #${task.id}"
+                    textSize = 10f
+                    setTextColor(Color.LTGRAY)
+                    gravity = Gravity.CENTER
+                })
+                tile.addView(content, FrameLayout.LayoutParams(-1, -1))
+                val close = TextView(ctx).apply {
+                    text = "×"
+                    textSize = 21f
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.LTGRAY)
+                    contentDescription = "Tutup $label"
+                    setPadding(d(4), 0, d(4), 0)
+                    setOnClickListener {
+                        keyboardInputExecutor.execute {
+                            val message = shizukuBridge.closeOpenTask(displayId, task.id)
+                            runOnUiThread {
+                                status.text = message
+                                appendRuntimeLog(message)
+                                showVirtualDisplayRecentTasks()
+                            }
+                        }
+                    }
+                }
+                tile.addView(close, FrameLayout.LayoutParams(d(32), d(32), Gravity.TOP or Gravity.END))
+                val params = android.widget.GridLayout.LayoutParams().apply {
+                    width = 0
+                    height = d(112)
+                    columnSpec = android.widget.GridLayout.spec(
+                        android.widget.GridLayout.UNDEFINED, 1f
+                    )
+                    setMargins(d(4), d(4), d(4), d(4))
+                }
+                grid.addView(tile, params)
+            }
+            scroll.addView(grid, ViewGroup.LayoutParams(-1, -2))
+            root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f).apply {
+                topMargin = d(12)
+            })
+        }
+
+        presentation.setContentView(root)
+        presentation.setOnDismissListener {
+            if (recentAppsPresentation === presentation) recentAppsPresentation = null
+        }
+        presentation.show()
+        presentation.window?.setLayout(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT
+        )
     }
 
     private fun sendVirtualNavigationKey(keyCode: Int) {
@@ -1173,19 +1432,33 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     private fun toggleDirectTouch() {
-        directTouchEnabled = !directTouchEnabled
-        directTouchButton.text = if (directTouchEnabled) "Touch: ON" else "Touch: OFF"
-        preview?.isClickable = directTouchEnabled
-        status.text = if (directTouchEnabled) {
-            bottomPanel.visibility = View.GONE
-            panelToggleButton.text = "Panel+"
-            "Direct Touch aktif • sentuh dan geser desktop seperti layar sentuh."
-        } else {
-            bottomPanel.visibility = View.VISIBLE
-            panelToggleButton.text = "Panel"
-            updateDesktopLayout((preview?.parent as? View)?.width ?: 0, (preview?.parent as? View)?.height ?: 0)
-            "Touchpad aktif • 1 jari kursor, tap layar, 2 jari scroll."
+        setPreviewInputMode((previewInputMode + 1) % 3)
+    }
+
+    private fun setPreviewInputMode(mode: Int) {
+        previewInputMode = mode.coerceIn(0, 2)
+        directTouchButton.text = when (previewInputMode) {
+            0 -> "Trackpad"
+            1 -> "Direct"
+            else -> "Touch: OFF"
         }
+        preview?.isClickable = previewInputMode != 2
+        when (previewInputMode) {
+            0 -> {
+                bottomPanel.visibility = View.GONE
+                panelToggleButton.text = "Panel+"
+                status.text = "Trackpad preview aktif • 1 jari kursor/tap, 2 jari scroll, tahan lalu geser untuk drag."
+            }
+            1 -> {
+                bottomPanel.visibility = View.GONE
+                panelToggleButton.text = "Panel+"
+                status.text = "Direct Touch aktif • sentuhan diteruskan langsung ke desktop virtual."
+            }
+            else -> {
+                status.text = "Input preview nonaktif • sentuhan pada preview diabaikan."
+            }
+        }
+        updateDesktopLayout((preview?.parent as? View)?.width ?: 0, (preview?.parent as? View)?.height ?: 0)
     }
 
     private fun handleDirectTouch(event: MotionEvent, width: Int, height: Int): Boolean {
@@ -1427,12 +1700,40 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
             setPadding(dp(2), 0, dp(2), 0)
             stateListAnimator = null
-            if (repeatable) {
-                var repeatTask: Runnable? = null
-                var repeating = false
-                setOnTouchListener { _, event ->
-                    when (event.actionMasked) {
-                        MotionEvent.ACTION_DOWN -> {
+            val normalColor = if (utility) Color.rgb(82, 96, 116) else Color.rgb(225, 230, 237)
+            val pressedColor = Color.rgb(91, 178, 235)
+            val previewLabel = if (label == "SPACE") "spasi" else label
+            val previewText = TextView(this@VirtualDisplayTouchActivity).apply {
+                text = previewLabel
+                textSize = 25f
+                gravity = Gravity.CENTER
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.WHITE)
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(12).toFloat()
+                    setColor(Color.rgb(48, 64, 86))
+                    setStroke(dp(1), Color.rgb(112, 211, 255))
+                }
+                elevation = dp(14).toFloat()
+                setPadding(dp(12), dp(5), dp(12), dp(5))
+            }
+            val previewPopup = android.widget.PopupWindow(
+                previewText, dp(if (label == "SPACE") 86 else 58), dp(54), false
+            ).apply { isTouchable = false; isOutsideTouchable = false }
+            var repeatTask: Runnable? = null
+            var repeating = false
+            setOnTouchListener { keyView, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        keyView.scaleX = 1.08f
+                        keyView.scaleY = 1.08f
+                        (keyView.background as? GradientDrawable)?.setColor(pressedColor)
+                        if (keyView.isAttachedToWindow) {
+                            runCatching {
+                                previewPopup.showAsDropDown(keyView, (keyView.width - previewPopup.width) / 2, -keyView.height - dp(48))
+                            }
+                        }
+                        if (repeatable) {
                             repeating = true
                             action()
                             val task = object : Runnable {
@@ -1445,19 +1746,22 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                             }
                             repeatTask = task
                             keyboardRepeatHandler.postDelayed(task, 420L)
-                            true
                         }
-                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                            repeating = false
-                            repeatTask?.let(keyboardRepeatHandler::removeCallbacks)
-                            repeatTask = null
-                            true
-                        }
-                        else -> true
+                        true
                     }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        repeating = false
+                        repeatTask?.let(keyboardRepeatHandler::removeCallbacks)
+                        repeatTask = null
+                        runCatching { if (previewPopup.isShowing) previewPopup.dismiss() }
+                        keyView.scaleX = 1f
+                        keyView.scaleY = 1f
+                        (keyView.background as? GradientDrawable)?.setColor(normalColor)
+                        if (!repeatable && event.actionMasked == MotionEvent.ACTION_UP) action()
+                        true
+                    }
+                    else -> true
                 }
-            } else {
-                setOnClickListener { action() }
             }
         }
 
@@ -1917,6 +2221,17 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             status.text = "Resolusi harus 320–2560 px dan DPI 120–640."
             return
         }
+        val resolutionSuffix = if (resolutionEditorLandscape) "landscape" else "portrait"
+        val currentLandscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        getSharedPreferences("saku_desktop_resolution", Context.MODE_PRIVATE).edit()
+            .putInt("${resolutionSuffix}_width", width)
+            .putInt("${resolutionSuffix}_height", height)
+            .putInt("${resolutionSuffix}_dpi", dpi)
+            .apply()
+        if (resolutionEditorLandscape != currentLandscape) {
+            status.text = "Profil ${if (resolutionEditorLandscape) "Landscape" else "Portrait"} tersimpan: ${width}×${height} • ${dpi} DPI. Profil aktif tidak berubah sampai orientasi diganti."
+            return
+        }
         targetWidth = width
         targetHeight = height
         targetDpi = dpi
@@ -1932,6 +2247,52 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         updateDesktopLayout((preview?.parent as? View)?.width ?: 0, (preview?.parent as? View)?.height ?: 0)
     }
 
+    private fun selectResolutionProfile(landscape: Boolean) {
+        resolutionEditorLandscape = landscape
+        val prefs = getSharedPreferences("saku_desktop_resolution", Context.MODE_PRIVATE)
+        val suffix = if (landscape) "landscape" else "portrait"
+        val width = prefs.getInt("${suffix}_width", 960).coerceIn(320, 2560)
+        val height = prefs.getInt("${suffix}_height", 820).coerceIn(320, 2560)
+        val dpi = prefs.getInt("${suffix}_dpi", 160).coerceIn(120, 640)
+        resolutionProfileLabel.text = "Profil: ${if (landscape) "Landscape" else "Portrait"}"
+        resolutionWidthInput.setText(width.toString())
+        resolutionHeightInput.setText(height.toString())
+        resolutionDpiInput.setText(dpi.toString())
+        status.text = "Mengedit profil ${if (landscape) "Landscape" else "Portrait"}. Perubahan profil lain tetap aman."
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val landscape = newConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val prefs = getSharedPreferences("saku_desktop_resolution", Context.MODE_PRIVATE)
+        val suffix = if (landscape) "landscape" else "portrait"
+        targetWidth = prefs.getInt("${suffix}_width", 960).coerceIn(320, 2560)
+        targetHeight = prefs.getInt("${suffix}_height", 820).coerceIn(320, 2560)
+        targetDpi = prefs.getInt("${suffix}_dpi", 160).coerceIn(120, 640)
+        cursorX = cursorX.coerceIn(0f, (targetWidth - 1).toFloat())
+        cursorY = cursorY.coerceIn(0f, (targetHeight - 1).toFloat())
+        preview?.contentDescription = "Desktop virtual display ${targetWidth} x ${targetHeight} • ${targetDpi} DPI"
+        preview?.holder?.setFixedSize(targetWidth, targetHeight)
+        selectResolutionProfile(landscape)
+        preview?.post {
+            val parent = preview?.parent as? View
+            if ((virtualDisplayController?.displayId ?: -1) >= 0) startOwnedVirtualDisplay()
+            if (parent != null) updateDesktopLayout(parent.width, parent.height)
+            assistantBallView?.post {
+                val ball = assistantBallView ?: return@post
+                val params = ball.layoutParams as? FrameLayout.LayoutParams ?: return@post
+                val maxX = (parent?.width ?: 0) - ball.width
+                val maxY = (parent?.height ?: 0) - ball.height
+                val xPercent = if (landscape) assistantBallLandscapeXPercent else assistantBallPortraitXPercent
+                val yPercent = if (landscape) assistantBallLandscapeYPercent else assistantBallPortraitYPercent
+                params.gravity = Gravity.TOP or Gravity.START
+                params.leftMargin = ((maxX.coerceAtLeast(0)) * xPercent / 100f).toInt()
+                params.topMargin = ((maxY.coerceAtLeast(0)) * yPercent / 100f).toInt()
+                ball.layoutParams = params
+                ball.bringToFront()
+            }
+        }
+    }
     private fun updateDesktopLayout(rootWidth: Int, rootHeight: Int) {
         if (rootWidth <= 0 || rootHeight <= 0 || !::bottomPanel.isInitialized) return
         val landscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -1941,14 +2302,24 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val keyboardParams = keyboardPanel.layoutParams as? FrameLayout.LayoutParams
 
         if (landscape) {
-            // Three fixed columns: touchpad | virtual screen | keyboard.
-            // The SurfaceView keeps its source aspect ratio and stays centered.
             val sideGap = dp(6)
-            val keyboardWidth = ((rootWidth * 30 / 100) * keyboardWidthPercent / 100).coerceIn(dp(140), (rootWidth * 38 / 100).coerceAtLeast(dp(140)))
-            val touchWidth = (rootWidth * touchpadWidthPercent / 100).coerceIn(dp(120), (rootWidth * 45 / 100).coerceAtLeast(dp(120)))
-            val centerWidth = (rootWidth - keyboardWidth - touchWidth - sideGap * 4).coerceAtLeast(dp(120))
             val maxCenterHeight = (rootHeight * 92 / 100).coerceAtLeast(dp(100))
-            var desktopWidth = centerWidth
+            val keyboardMode = keyboardPanelVisible && !gamepadModeActive
+            val keyboardWidth = if (keyboardMode) {
+                ((rootWidth * 50 / 100) * keyboardLandscapeWidthPercent / 100)
+                    .coerceIn(dp(140), (rootWidth * 58 / 100).coerceAtLeast(dp(140)))
+            } else 0
+            val touchWidth = if (keyboardMode || gamepadModeActive) 0 else {
+                (rootWidth * touchpadWidthPercent / 100).coerceIn(dp(120), (rootWidth * 45 / 100).coerceAtLeast(dp(120)))
+            }
+            val availablePreviewWidth = if (keyboardMode) {
+                (rootWidth - keyboardWidth - sideGap * 3).coerceAtLeast(dp(120))
+            } else if (gamepadModeActive) {
+                (rootWidth * 54 / 100).coerceAtLeast(dp(120))
+            } else {
+                (rootWidth - keyboardWidth - touchWidth - sideGap * 4).coerceAtLeast(dp(120))
+            }
+            var desktopWidth = availablePreviewWidth
             var desktopHeight = (desktopWidth / aspect).toInt()
             if (desktopHeight > maxCenterHeight) {
                 desktopHeight = maxCenterHeight
@@ -1957,47 +2328,73 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             previewParams?.let {
                 it.width = desktopWidth
                 it.height = desktopHeight
-                it.gravity = Gravity.CENTER
-                it.leftMargin = 0; it.rightMargin = 0; it.topMargin = 0; it.bottomMargin = 0
+                it.gravity = if (keyboardMode) Gravity.LEFT or Gravity.CENTER_VERTICAL else Gravity.CENTER
+                it.leftMargin = if (keyboardMode) sideGap else 0
+                it.rightMargin = 0; it.topMargin = 0; it.bottomMargin = 0
                 preview?.layoutParams = it
             }
             panelParams?.let {
                 it.width = touchWidth
-                it.height = (rootHeight * touchpadLandscapeHeightPercent / 100).coerceIn(dp(130), rootHeight)
-                if (touchpadLandscapeHasCustomPosition) {
-                    val maxX = (rootWidth - it.width).coerceAtLeast(0)
-                    val maxY = (rootHeight - it.height).coerceAtLeast(0)
-                    it.gravity = Gravity.TOP or Gravity.LEFT
-                    it.leftMargin = (maxX * touchpadLandscapeXPercent / 100f).toInt()
-                    it.topMargin = (maxY * touchpadLandscapeYPercent / 100f).toInt()
-                    it.rightMargin = 0; it.bottomMargin = 0
-                } else {
+                if (gamepadModeActive || keyboardMode) {
+                    bottomPanel.visibility = View.GONE
+                    it.height = 0
                     it.gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
-                    it.leftMargin = sideGap; it.rightMargin = 0; it.topMargin = 0; it.bottomMargin = 0
+                    it.leftMargin = 0; it.rightMargin = 0; it.topMargin = 0; it.bottomMargin = 0
+                } else {
+                    bottomPanel.visibility = View.VISIBLE
+                    it.height = (rootHeight * touchpadLandscapeHeightPercent / 100).coerceIn(dp(130), rootHeight)
+                    if (touchpadLandscapeHasCustomPosition) {
+                        val maxX = (rootWidth - it.width).coerceAtLeast(0)
+                        val maxY = (rootHeight - it.height).coerceAtLeast(0)
+                        it.gravity = Gravity.TOP or Gravity.LEFT
+                        it.leftMargin = (maxX * touchpadLandscapeXPercent / 100f).toInt()
+                        it.topMargin = (maxY * touchpadLandscapeYPercent / 100f).toInt()
+                        it.rightMargin = 0; it.bottomMargin = 0
+                    } else {
+                        it.gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
+                        it.leftMargin = sideGap; it.rightMargin = 0; it.topMargin = 0; it.bottomMargin = 0
+                    }
                 }
                 bottomPanel.layoutParams = it
             }
             keyboardParams?.let {
-                keyboardPanel.visibility = if (keyboardPanelVisible) View.VISIBLE else View.GONE
+                keyboardPanel.visibility = if (keyboardMode) View.VISIBLE else View.GONE
                 it.width = keyboardWidth
-                it.height = dp(keyboardHeightDp).coerceAtMost(rootHeight)
-                if (keyboardLandscapeHasCustomPosition) {
-                    val maxX = (rootWidth - it.width).coerceAtLeast(0)
-                    val maxY = (rootHeight - it.height).coerceAtLeast(0)
-                    it.gravity = Gravity.TOP or Gravity.START
-                    it.leftMargin = (maxX * keyboardLandscapeXPercent / 100f).toInt()
-                    it.topMargin = (maxY * keyboardLandscapeYPercent / 100f).toInt()
-                    it.rightMargin = 0; it.bottomMargin = 0
+                it.height = dp(keyboardLandscapeHeightDp).coerceAtMost(rootHeight)
+                if (keyboardMode) {
+                    it.width = keyboardWidth
+                    if (keyboardLandscapeHasCustomPosition) {
+                        val maxX = (rootWidth - it.width).coerceAtLeast(0)
+                        val maxY = (rootHeight - it.height).coerceAtLeast(0)
+                        it.gravity = Gravity.TOP or Gravity.START
+                        it.leftMargin = (maxX * keyboardLandscapeXPercent / 100f).toInt()
+                        it.topMargin = (maxY * keyboardLandscapeYPercent / 100f).toInt()
+                        it.rightMargin = 0; it.bottomMargin = 0
+                    } else {
+                        it.gravity = Gravity.RIGHT or Gravity.CENTER_VERTICAL
+                        it.leftMargin = 0; it.rightMargin = sideGap; it.topMargin = 0; it.bottomMargin = 0
+                    }
                 } else {
+                    it.width = 0
                     it.gravity = Gravity.RIGHT or Gravity.CENTER_VERTICAL
-                    it.leftMargin = 0; it.rightMargin = sideGap; it.topMargin = 0; it.bottomMargin = 0
                 }
                 keyboardPanel.layoutParams = it
             }
         } else {
             // Portrait keeps the existing stacked layout and floating keyboard behavior.
             val maxPreviewWidth = (rootWidth * previewSizePercent / 100).coerceIn(dp(180), rootWidth)
-            val maxPreviewHeight = (rootHeight * 40 / 100).coerceAtLeast(dp(100))
+            // Portrait preview can grow down toward the touchpad instead of stopping
+            // at the old 40% cap. Keep a small gap above the touchpad and preserve
+            // the virtual display aspect ratio so the image is not stretched.
+            val touchpadTop = if (touchpadPortraitHasCustomPosition) {
+                val panelHeight = (rootHeight * touchpadPortraitHeightPercent / 100)
+                    .coerceIn(dp(120), (rootHeight * 65 / 100).coerceAtLeast(dp(120)))
+                ((rootHeight - panelHeight).coerceAtLeast(0) * touchpadPortraitYPercent / 100f).toInt()
+                    .coerceIn(0, (rootHeight - panelHeight).coerceAtLeast(0))
+            } else {
+                (rootHeight * 70 / 100).coerceAtMost(rootHeight)
+            }
+            val maxPreviewHeight = (touchpadTop - dp(14)).coerceAtLeast(dp(100))
             var desktopWidth = maxPreviewWidth
             var desktopHeight = (desktopWidth / aspect).toInt()
             if (desktopHeight > maxPreviewHeight) {
@@ -2059,6 +2456,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE).edit()
             .putInt("width_percent", keyboardWidthPercent)
             .putInt("height_dp", keyboardHeightDp)
+            .putInt("landscape_width_percent", keyboardLandscapeWidthPercent)
+            .putInt("landscape_height_dp", keyboardLandscapeHeightDp)
             .apply()
     }
 

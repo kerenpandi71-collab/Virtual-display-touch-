@@ -299,12 +299,31 @@ class ShizukuBridge(
         }
     }
 
-    fun getRecentTasks(displayId: Int): String {
+    fun getOpenTasks(displayId: Int): String {
         return try {
-            remote?.getRecentTasks(displayId) ?: "Shizuku UserService belum terhubung."
+            remote?.getOpenTasks(displayId) ?: "Shizuku UserService belum terhubung."
         } catch (error: Throwable) {
-            Log.e(TAG, "getRecentTasks failed", error)
-            "Gagal membaca Recent: ${error.cause?.message ?: error.message}"
+            Log.e(TAG, "getOpenTasks failed", error)
+            "Gagal membaca Open Tasks: ${error.cause?.message ?: error.message}"
+        }
+    }
+
+    fun focusOpenTask(displayId: Int, taskId: Int): String =
+        runOpenTaskAction("focusOpenTask") { it.focusOpenTask(displayId, taskId) }
+
+    fun closeOpenTask(displayId: Int, taskId: Int): String =
+        runOpenTaskAction("closeOpenTask") { it.closeOpenTask(displayId, taskId) }
+
+    private inline fun runOpenTaskAction(
+        action: String,
+        operation: (IVirtualDisplayService) -> String
+    ): String {
+        return try {
+            val service = remote ?: return "Shizuku UserService belum terhubung."
+            operation(service).also { onStatus(it) }
+        } catch (error: Throwable) {
+            Log.e(TAG, "$action failed", error)
+            "Operasi Open Tasks gagal: ${error.cause?.message ?: error.message}"
         }
     }
 
