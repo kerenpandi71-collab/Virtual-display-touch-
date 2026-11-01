@@ -114,6 +114,10 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var previewSizeValue: TextView
     private lateinit var panelPositionValue: TextView
     private var previewSizePercent = 100
+    private var previewSizePortraitPercent = 100
+    private var previewSizeLandscapePercent = 100
+    private var keyboardLandscapeWidthPercent = 100
+    private var keyboardLandscapeHeightDp = 240
     private var panelPositionPercent = 0
     private var directTouchDown = false
     private var directTouchEnabled = true
@@ -159,9 +163,20 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val landscapeAtLaunch = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val displayPrefs = getSharedPreferences("saku_desktop_resolution", Context.MODE_PRIVATE)
+        val resolutionSuffix = if (landscapeAtLaunch) "landscape" else "portrait"
+        targetWidth = displayPrefs.getInt("${resolutionSuffix}_width", 960).coerceIn(320, 2560)
+        targetHeight = displayPrefs.getInt("${resolutionSuffix}_height", 820).coerceIn(320, 2560)
+        targetDpi = displayPrefs.getInt("${resolutionSuffix}_dpi", 160).coerceIn(120, 640)
+        previewSizePortraitPercent = displayPrefs.getInt("preview_portrait_percent", 100).coerceIn(50, 100)
+        previewSizeLandscapePercent = displayPrefs.getInt("preview_landscape_percent", 100).coerceIn(50, 100)
+        previewSizePercent = if (landscapeAtLaunch) previewSizeLandscapePercent else previewSizePortraitPercent
         val keyboardPrefs = getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE)
         keyboardWidthPercent = keyboardPrefs.getInt("width_percent", 100).coerceIn(55, 100)
         keyboardHeightDp = keyboardPrefs.getInt("height_dp", 240).coerceIn(170, 360)
+        keyboardLandscapeWidthPercent = keyboardPrefs.getInt("landscape_width_percent", 100).coerceIn(55, 100)
+        keyboardLandscapeHeightDp = keyboardPrefs.getInt("landscape_height_dp", 240).coerceIn(170, 360)
         keyboardHasCustomPosition = keyboardPrefs.getBoolean("custom_position", false)
         keyboardLandscapeHasCustomPosition = keyboardPrefs.getBoolean("landscape_custom_position", false)
         keyboardLandscapeXPercent = keyboardPrefs.getInt("landscape_x_percent", 100).coerceIn(0, 100)
@@ -305,15 +320,19 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         actions.addView(directTouchButton, LinearLayout.LayoutParams(0, dp(34), 0.78f))
         topBar.addView(actions)
         val previewSizeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        previewSizeValue = TextView(this).apply { text = "Desktop 100%"; textSize = 9f; setTextColor(Color.WHITE) }
+        previewSizeValue = TextView(this).apply { text = "Desktop ${previewSizePercent}%"; textSize = 9f; setTextColor(Color.WHITE) }
         previewSizeRow.addView(previewSizeValue, LinearLayout.LayoutParams(dp(84), dp(26)))
         previewSizeSeekBar = SeekBar(this).apply {
             max = 50
-            progress = 50
+            progress = previewSizePercent - 50
             contentDescription = "Ukuran preview desktop 50 sampai 100 persen"
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     previewSizePercent = 50 + progress
+                    if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) previewSizeLandscapePercent = previewSizePercent else previewSizePortraitPercent = previewSizePercent
+                    getSharedPreferences("saku_desktop_resolution", Context.MODE_PRIVATE).edit()
+                        .putInt("preview_portrait_percent", previewSizePortraitPercent)
+                        .putInt("preview_landscape_percent", previewSizeLandscapePercent).apply()
                     previewSizeValue.text = "Desktop ${previewSizePercent}%"
                     updateDesktopLayout(root.width, root.height)
                 }
@@ -351,9 +370,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             background = roundedPanel(180, 6)
             layoutParams = LinearLayout.LayoutParams(dp(widthDp), dp(32)).apply { rightMargin = dp(3) }
         }
-        resolutionWidthInput = resolutionInput("960", "Lebar", 62)
-        resolutionHeightInput = resolutionInput("820", "Tinggi", 58)
-        resolutionDpiInput = resolutionInput("160", "DPI", 48)
+        resolutionWidthInput = resolutionInput(targetWidth.toString(), "Lebar", 62)
+        resolutionHeightInput = resolutionInput(targetHeight.toString(), "Tinggi", 58)
+        resolutionDpiInput = resolutionInput(targetDpi.toString(), "DPI", 48)
         resolutionRow.addView(resolutionWidthInput)
         resolutionRow.addView(resolutionHeightInput)
         resolutionRow.addView(resolutionDpiInput)
@@ -699,14 +718,17 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                             keyboardLandscapeXPercent = (keyboardPositionX.toFloat() / maxX * 100).toInt().coerceIn(0, 100)
                             keyboardLandscapeYPercent = (keyboardPositionY.toFloat() / maxY * 100).toInt().coerceIn(0, 100)
                         }
-                        getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE).edit()
-                            .putBoolean("custom_position", if (landscapeNow) keyboardHasCustomPosition else true)
-                            .putInt("position_x", keyboardPositionX)
-                            .putInt("position_y", keyboardPositionY)
-                            .putBoolean("landscape_custom_position", if (landscapeNow) true else keyboardLandscapeHasCustomPosition)
-                            .putInt("landscape_x_percent", keyboardLandscapeXPercent)
-                            .putInt("landscape_y_percent", keyboardLandscapeYPercent)
-                            .apply()
+                        val keyboardPositionPrefs = getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE).edit()
+                        if (landscapeNow) {
+                            keyboardPositionPrefs.putBoolean("landscape_custom_position", true)
+                                .putInt("landscape_x_percent", keyboardLandscapeXPercent)
+                                .putInt("landscape_y_percent", keyboardLandscapeYPercent)
+                        } else {
+                            keyboardPositionPrefs.putBoolean("custom_position", true)
+                                .putInt("position_x", keyboardPositionX)
+                                .putInt("position_y", keyboardPositionY)
+                        }
+                        keyboardPositionPrefs.apply()
                         true
                     }
                     else -> true
@@ -715,22 +737,22 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         keyboardTitle.addView(keyboardDragHandle, LinearLayout.LayoutParams(0, dp(24), 1f))
         keyboardTitle.addView(actionButton("W−") {
-            keyboardWidthPercent = (keyboardWidthPercent - 5).coerceAtLeast(55)
+            if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) keyboardLandscapeWidthPercent = (keyboardLandscapeWidthPercent - 5).coerceAtLeast(55) else keyboardWidthPercent = (keyboardWidthPercent - 5).coerceAtLeast(55)
             persistKeyboardSize()
             updateDesktopLayout(root.width, root.height)
         }, LinearLayout.LayoutParams(dp(35), dp(27)))
         keyboardTitle.addView(actionButton("W+") {
-            keyboardWidthPercent = (keyboardWidthPercent + 5).coerceAtMost(100)
+            if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) keyboardLandscapeWidthPercent = (keyboardLandscapeWidthPercent + 5).coerceAtMost(100) else keyboardWidthPercent = (keyboardWidthPercent + 5).coerceAtMost(100)
             persistKeyboardSize()
             updateDesktopLayout(root.width, root.height)
         }, LinearLayout.LayoutParams(dp(35), dp(27)))
         keyboardTitle.addView(actionButton("H−") {
-            keyboardHeightDp = (keyboardHeightDp - 15).coerceAtLeast(170)
+            if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) keyboardLandscapeHeightDp = (keyboardLandscapeHeightDp - 15).coerceAtLeast(170) else keyboardHeightDp = (keyboardHeightDp - 15).coerceAtLeast(170)
             persistKeyboardSize()
             updateDesktopLayout(root.width, root.height)
         }, LinearLayout.LayoutParams(dp(35), dp(27)))
         keyboardTitle.addView(actionButton("H+") {
-            keyboardHeightDp = (keyboardHeightDp + 15).coerceAtMost(360)
+            if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) keyboardLandscapeHeightDp = (keyboardLandscapeHeightDp + 15).coerceAtMost(360) else keyboardHeightDp = (keyboardHeightDp + 15).coerceAtMost(360)
             persistKeyboardSize()
             updateDesktopLayout(root.width, root.height)
         }, LinearLayout.LayoutParams(dp(35), dp(27)))
@@ -2101,6 +2123,12 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         targetWidth = width
         targetHeight = height
         targetDpi = dpi
+        val resolutionSuffix = if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) "landscape" else "portrait"
+        getSharedPreferences("saku_desktop_resolution", Context.MODE_PRIVATE).edit()
+            .putInt("${resolutionSuffix}_width", width)
+            .putInt("${resolutionSuffix}_height", height)
+            .putInt("${resolutionSuffix}_dpi", dpi)
+            .apply()
         cursorX = cursorX.coerceIn(0f, (targetWidth - 1).toFloat())
         cursorY = cursorY.coerceIn(0f, (targetHeight - 1).toFloat())
         preview?.contentDescription = "Desktop virtual display ${targetWidth} x ${targetHeight} • ${targetDpi} DPI"
@@ -2125,7 +2153,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             // Three fixed columns: touchpad | virtual screen | keyboard.
             // The SurfaceView keeps its source aspect ratio and stays centered.
             val sideGap = dp(6)
-            val keyboardWidth = ((rootWidth * 30 / 100) * keyboardWidthPercent / 100).coerceIn(dp(140), (rootWidth * 38 / 100).coerceAtLeast(dp(140)))
+            val keyboardWidth = ((rootWidth * 30 / 100) * keyboardLandscapeWidthPercent / 100).coerceIn(dp(140), (rootWidth * 38 / 100).coerceAtLeast(dp(140)))
             val touchWidth = (rootWidth * touchpadWidthPercent / 100).coerceIn(dp(120), (rootWidth * 45 / 100).coerceAtLeast(dp(120)))
             val centerWidth = (rootWidth - keyboardWidth - touchWidth - sideGap * 4).coerceAtLeast(dp(120))
             val maxCenterHeight = (rootHeight * 92 / 100).coerceAtLeast(dp(100))
@@ -2161,7 +2189,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             keyboardParams?.let {
                 keyboardPanel.visibility = if (keyboardPanelVisible) View.VISIBLE else View.GONE
                 it.width = keyboardWidth
-                it.height = dp(keyboardHeightDp).coerceAtMost(rootHeight)
+                it.height = dp(keyboardLandscapeHeightDp).coerceAtMost(rootHeight)
                 if (keyboardLandscapeHasCustomPosition) {
                     val maxX = (rootWidth - it.width).coerceAtLeast(0)
                     val maxY = (rootHeight - it.height).coerceAtLeast(0)
@@ -2251,6 +2279,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE).edit()
             .putInt("width_percent", keyboardWidthPercent)
             .putInt("height_dp", keyboardHeightDp)
+            .putInt("landscape_width_percent", keyboardLandscapeWidthPercent)
+            .putInt("landscape_height_dp", keyboardLandscapeHeightDp)
             .apply()
     }
 
