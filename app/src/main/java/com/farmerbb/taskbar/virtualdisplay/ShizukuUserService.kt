@@ -890,7 +890,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             !launch.second.contains("Exception", true) &&
             !launch.second.contains("unable to resolve", true)
         lastError = if (launchSucceeded) "Membuka $component pada virtual display $displayId."
-            else "Gagal membuka aplikasi pada display $displayId. move-to-front: \${moveResult.second}; start: \${launch.second}"
+            else "Gagal membuka aplikasi pada display $displayId. move-to-front: ${moveResult.second}; start: ${launch.second}"
         return lastError
     }
 
@@ -921,7 +921,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             !result.second.contains("Error", true) &&
             !result.second.contains("Exception", true)
         lastError = if (success) "Task #$taskId dihapus dari Recent."
-            else "Gagal menghapus task #$taskId: \${result.second}"
+            else "Gagal menghapus task #$taskId: ${result.second}"
         return lastError
     }
 
@@ -948,8 +948,8 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             if (result.first == 0 && !result.second.contains("Error", true) &&
                 !result.second.contains("Exception", true)) removed++ else failures.add("#$id")
         }
-        lastError = "Clear Recent display $displayId: $removed/\${ids.size} task dihapus" +
-            if (failures.isEmpty()) "." else " • gagal \${failures.joinToString(", ")}."
+        lastError = "Clear Recent display $displayId: $removed/${ids.size} task dihapus" +
+            if (failures.isEmpty()) "." else " • gagal ${failures.joinToString(", ")}."
         return lastError
     }
 
