@@ -1109,20 +1109,208 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             status.text = "Mulai virtual display dahulu."
             return
         }
-        status.text = "Membaca aplikasi pada display $displayId…"
+        status.text = "Memuat Recent display $displayId…"
         keyboardInputExecutor.execute {
             val result = shizukuBridge.getRecentTasks(displayId)
             runOnUiThread {
                 appendRuntimeLog("Recent display $displayId\\n$result")
-                AlertDialog.Builder(this)
-                    .setTitle("Recent • Display $displayId")
-                    .setMessage(result)
-                    .setPositiveButton("Perbarui") { _, _ -> showVirtualDisplayRecentTasks() }
-                    .setNegativeButton("Tutup", null)
-                    .show()
-                status.text = "Daftar Recent display $displayId diperbarui."
+                renderRecentAppsGrid(displayId, result)
+                status.text = "Recent display $displayId diperbarui."
             }
         }
+    }
+
+    /** Two-column overview for tasks verified on the selected virtual display. */
+    private fun renderRecentAppsGrid(displayId: Int, result: String) {
+        val dialogRoot = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            setBackgroundColor(Color.rgb(77, 77, 77))
+        }
+        val heading = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        heading.addView(TextView(this).apply {
+            text = "Recent apps"
+            textSize = 21f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+        }, LinearLayout.LayoutParams(0, dp(42), 1f))
+        heading.addView(TextView(this).apply {
+            text = "DISPLAY $displayId"
+            textSize = 9f
+            setTextColor(Color.rgb(180, 224, 240))
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                cornerRadius = dp(12).toFloat()
+                setColor(Color.rgb(38, 53, 69))
+                setStroke(dp(1), Color.rgb(63, 190, 220))
+            }
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+        })
+        dialogRoot.addView(heading)
+
+        val taskPattern = Regex("""taskId=(\\d+)(?:\\s*•\\s*([^\\s]+))?""")
+        val tasks = taskPattern.findAll(result).mapNotNull { match ->
+            val id = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
+            val component = match.groupValues.getOrNull(2).orEmpty()
+            val packageName = component.substringBefore('/').takeIf { it.contains('.') }
+            Triple(id, component, packageName)
+        }.distinctBy { it.first }
+
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+            setPadding(0, dp(8), 0, dp(8))
+        }
+        val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        if (tasks.isEmpty()) {
+            grid.addView(TextView(this).apply {
+                text = if (result.contains("task aktif") || result.contains("Recent display")) result
+                    else "Belum ada aplikasi yang terbaca pada display ini.\\n\\n$result"
+                textSize = 13f
+                setTextColor(Color.LTGRAY)
+                gravity = Gravity.CENTER
+                setPadding(dp(18), dp(28), dp(18), dp(28))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(18).toFloat()
+                    setColor(Color.rgb(28, 30, 34))
+                    setStroke(dp(1), Color.rgb(80, 91, 104))
+                }
+            }, LinearLayout.LayoutParams(-1, dp(180)))
+        } else {
+            tasks.chunked(2).forEach { rowTasks ->
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.TOP
+                }
+                rowTasks.forEachIndexed { index, task ->
+                    val (taskId, component, packageName) = task
+                    val appInfo = try {
+                        packageName?.let { packageManager.getApplicationInfo(it, 0) }
+                    } catch (_: Throwable) { null }
+                    val appName = try {
+                        appInfo?.let { packageManager.getApplicationLabel(it).toString() }
+                    } catch (_: Throwable) { null } ?: packageName ?: "Aplikasi"
+                    val card = LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(dp(10), dp(10), dp(10), dp(10))
+                        background = GradientDrawable().apply {
+                            cornerRadius = dp(18).toFloat()
+                            setColor(Color.rgb(20, 21, 24))
+                            setStroke(dp(1), Color.rgb(76, 91, 108))
+                        }
+                        elevation = dp(3).toFloat()
+                    }
+                    val appHeader = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                    }
+                    val icon = android.widget.ImageView(this).apply {
+                        if (appInfo != null) {
+                            try { setImageDrawable(packageManager.getApplicationIcon(appInfo)) }
+                            catch (_: Throwable) { setImageResource(android.R.drawable.sym_def_app_icon) }
+                        } else setImageResource(android.R.drawable.sym_def_app_icon)
+                        scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                    }
+                    appHeader.addView(icon, LinearLayout.LayoutParams(dp(30), dp(30)))
+                    appHeader.addView(TextView(this).apply {
+                        text = appName
+                        textSize = 12f
+                        setTextColor(Color.WHITE)
+                        typeface = Typeface.DEFAULT_BOLD
+                        maxLines = 2
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                        setPadding(dp(8), 0, 0, 0)
+                    }, LinearLayout.LayoutParams(0, dp(38), 1f))
+                    card.addView(appHeader)
+
+                    // Task snapshots are not exposed by the current Shizuku bridge;
+                    // use a neutral preview surface rather than a misleading fake screenshot.
+                    val preview = FrameLayout(this).apply {
+                        background = GradientDrawable(
+                            GradientDrawable.Orientation.TL_BR,
+                            intArrayOf(Color.rgb(39, 45, 55), Color.rgb(13, 16, 22))
+                        ).apply {
+                            cornerRadius = dp(12).toFloat()
+                            setStroke(dp(1), Color.rgb(48, 62, 78))
+                        }
+                    }
+                    preview.addView(TextView(this).apply {
+                        text = appName.take(22)
+                        textSize = 14f
+                        setTextColor(Color.rgb(205, 216, 226))
+                        gravity = Gravity.CENTER
+                        maxLines = 2
+                    }, FrameLayout.LayoutParams(-1, -1))
+                    card.addView(preview, LinearLayout.LayoutParams(-1, dp(112)).apply {
+                        topMargin = dp(8)
+                    })
+                    card.addView(TextView(this).apply {
+                        text = "TASK #$taskId"
+                        textSize = 9f
+                        setTextColor(Color.rgb(130, 199, 222))
+                        typeface = Typeface.MONOSPACE
+                        setPadding(0, dp(8), 0, 0)
+                    })
+                    if (component.isNotBlank()) {
+                        card.addView(TextView(this).apply {
+                            text = component
+                            textSize = 8f
+                            setTextColor(Color.LTGRAY)
+                            maxLines = 2
+                            ellipsize = android.text.TextUtils.TruncateAt.END
+                            setPadding(0, dp(3), 0, 0)
+                        })
+                    }
+                    row.addView(card, LinearLayout.LayoutParams(0, dp(205), 1f).apply {
+                        if (index == 0) rightMargin = dp(6) else leftMargin = dp(6)
+                        bottomMargin = dp(10)
+                    })
+                }
+                if (rowTasks.size == 1) {
+                    row.addView(View(this), LinearLayout.LayoutParams(0, dp(205), 1f).apply {
+                        leftMargin = dp(6)
+                    })
+                }
+                grid.addView(row)
+            }
+        }
+        scroll.addView(grid)
+        dialogRoot.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        val footer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        footer.addView(TextView(this).apply {
+            text = "${tasks.size} aplikasi"
+            textSize = 11f
+            setTextColor(Color.LTGRAY)
+        }, LinearLayout.LayoutParams(0, dp(42), 1f))
+        val dialog = AlertDialog.Builder(this).setView(dialogRoot).create()
+        footer.addView(Button(this).apply {
+            text = "Perbarui"
+            isAllCaps = false
+            setOnClickListener {
+                dialog.dismiss()
+                showVirtualDisplayRecentTasks()
+            }
+        })
+        footer.addView(Button(this).apply {
+            text = "Tutup"
+            isAllCaps = false
+            setOnClickListener { dialog.dismiss() }
+        })
+        dialogRoot.addView(footer)
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.window?.setLayout(
+            (resources.displayMetrics.widthPixels * 0.94f).toInt(),
+            (resources.displayMetrics.heightPixels * 0.78f).toInt()
+        )
     }
 
     private fun sendVirtualNavigationKey(keyCode: Int) {
