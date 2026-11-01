@@ -752,12 +752,8 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         }
     }
 
-    /**
-     * Recent task access follows Forkdex's framework-task model:
-     * ActivityTaskManager.getTasks(displayId) provides structured TaskInfo objects,
-     * and task tokens are reordered through WindowContainerTransaction. No dumpsys
-     * parsing and no am start fallback are used for task selection.
-     */
+    // Forkdex-style task overview backend: structured ActivityTaskManager task records
+    // and WindowContainerTransaction operations against the existing task tokens.
     private fun frameworkTaskService(): Any {
         enableHiddenApiAccess()
         val manager = Class.forName("android.app.ActivityTaskManager")
@@ -766,156 +762,108 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     }
 
     private fun frameworkTasks(displayId: Int): List<Any> {
-        require(displayId in 0..10000) { "Display ID tidak valid: $displayId" }
+        require(displayId >= 0) { "Display ID tidak valid: $displayId" }
         val service = frameworkTaskService()
-        val method = service.javaClass.getMethod(
+        val result = service.javaClass.getMethod(
             "getTasks", Int::class.javaPrimitiveType,
             Boolean::class.javaPrimitiveType, Boolean::class.javaPrimitiveType,
             Int::class.javaPrimitiveType
-        )
-        val result = method.invoke(service, 100, false, false, displayId)
+        ).invoke(service, 100, false, false, displayId)
         return (result as? List<*>)?.filterNotNull()
             ?: throw IllegalStateException("ActivityTaskManager tidak mengembalikan daftar task")
     }
 
-    private fun taskInt(task: Any, name: String): Int {
-        val field = task.javaClass.getField(name)
-        return field.getInt(task)
-    }
+    private fun taskInt(task: Any, name: String): Int =
+        task.javaClass.getField(name).getInt(task)
 
     private fun taskComponent(task: Any): String? {
-        val top = runCatching { task.javaClass.getField("topActivity").get(task) }.getOrNull()
-        val base = runCatching { task.javaClass.getField("baseActivity").get(task) }.getOrNull()
-        val component = top ?: base ?: return null
-        val flattened = component.javaClass.getMethod("flattenToShortString").invoke(component) as? String
-        return flattened?.takeIf { it.matches(Regex("""[A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+""")) }
+        val component = runCatching { task.javaClass.getField("topActivity").get(task) }.getOrNull()
+            ?: runCatching { task.javaClass.getField("baseActivity").get(task) }.getOrNull()
+            ?: return null
+        val value = component.javaClass.getMethod("flattenToShortString").invoke(component) as? String
+        return value?.takeIf { it.matches(Regex("""[A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+""")) }
     }
 
-    private fun findFrameworkTask(displayId: Int, taskId: Int): Any? {
-        if (taskId <= 0) return null
-        return frameworkTasks(displayId).firstOrNull { task ->
-            runCatching { taskInt(task, "taskId") == taskId }.getOrDefault(false)
-        }
+    private fun verifiedOpenTask(displayId: Int, taskId: Int): Pair<Any, String>? {
+        if (displayId < 0 || taskId <= 0) return null
+        val task = frameworkTasks(displayId).firstOrNull {
+            runCatching { taskInt(it, "taskId") == taskId }.getOrDefault(false)
+        } ?: return null
+        return task to (taskComponent(task) ?: return null)
     }
 
-    override fun getRecentTasks(displayId: Int): String {
+    override fun getOpenTasks(displayId: Int): String {
         return try {
-            val tasks = frameworkTasks(displayId)
             val ownPackage = serviceContext?.packageName ?: "com.kerenpandi.virtualdisplaytouch"
-            val entries = tasks.mapNotNull { task ->
+            val entries = frameworkTasks(displayId).mapNotNull { task ->
                 val id = runCatching { taskInt(task, "taskId") }.getOrNull() ?: return@mapNotNull null
                 val component = taskComponent(task) ?: return@mapNotNull null
                 if (component.substringBefore('/') == ownPackage) return@mapNotNull null
                 "taskId=$id • $component"
-            }.distinct().take(50)
-            lastError = "Forkdex framework Recent • display=$displayId • ${entries.size} task."
-            if (entries.isEmpty()) "Tidak ada task aplikasi pada display $displayId." else entries.joinToString("\n")
+            }.distinctBy { it.substringBefore(' ') }.take(50)
+            lastError = "Open Tasks Forkdex • display=$displayId • count=" + entries.size
+            if (entries.isEmpty()) "" else entries.joinToString("\n")
         } catch (error: Throwable) {
             val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error
-            lastError = "Gagal membaca framework Recent: ${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}"
+            lastError = "Gagal memuat Open Tasks: " + cause.javaClass.simpleName + ": " + (cause.message ?: "tanpa detail")
             Log.w(TAG, lastError, cause)
-            lastError
+            ""
         }
     }
 
-    private fun verifiedFrameworkTask(displayId: Int, taskId: Int): Pair<Any, String>? {
-        if (displayId !in 0..10000 || taskId <= 0) return null
-        val task = findFrameworkTask(displayId, taskId) ?: return null
-        val component = taskComponent(task) ?: return null
-        return task to component
+    private fun applyForkdexWindowTransaction(task: Any, remove: Boolean) {
+        val token = task.javaClass.getField("token").get(task)
+            ?: throw IllegalStateException("Task token tidak tersedia")
+        val tokenClass = Class.forName("android.window.WindowContainerToken")
+        val transactionClass = Class.forName("android.window.WindowContainerTransaction")
+        val transaction = transactionClass.getConstructor().newInstance()
+        if (remove) {
+            transactionClass.getMethod("removeTask", tokenClass).invoke(transaction, token)
+        } else {
+            transactionClass.getMethod(
+                "reorder", tokenClass, Boolean::class.javaPrimitiveType,
+                Boolean::class.javaPrimitiveType
+            ).invoke(transaction, token, true, true)
+        }
+
+        // Match Forkdex: share WM's surface transaction queue and submit via ATM's WOC.
+        val organizerClass = Class.forName("android.window.WindowOrganizer")
+        val organizer = organizerClass.getConstructor().newInstance()
+        val shared = organizerClass.getMethod("shareTransactionQueue").invoke(organizer) as? Boolean
+        if (shared != true) throw IllegalStateException("WindowManager transaction queue tidak tersedia")
+        val service = frameworkTaskService()
+        val controller = service.javaClass.getMethod("getWindowOrganizerController").invoke(service)
+            ?: throw IllegalStateException("WindowOrganizerController tidak tersedia")
+        controller.javaClass.getMethod("applyTransaction", transactionClass).invoke(controller, transaction)
     }
 
-    override fun moveRecentTaskToFront(displayId: Int, taskId: Int): String {
+    override fun focusOpenTask(displayId: Int, taskId: Int): String {
         return try {
-            val (task, component) = verifiedFrameworkTask(displayId, taskId)
+            val (task, component) = verifiedOpenTask(displayId, taskId)
                 ?: return "Task #$taskId tidak ditemukan pada display $displayId."
-            val token = task.javaClass.getField("token").get(task)
-                ?: throw IllegalStateException("Task token tidak tersedia.")
-            val tokenClass = Class.forName("android.window.WindowContainerToken")
-            val transactionClass = Class.forName("android.window.WindowContainerTransaction")
-            val transaction = transactionClass.getConstructor().newInstance()
-            val reorder = transactionClass.getMethod(
-                "reorder", tokenClass, Boolean::class.javaPrimitiveType
-            )
-            reorder.invoke(transaction, token, true)
-            // Same WindowContainerTransaction task-token reorder used by Forkdex.
-            val organizerClass = Class.forName("android.window.WindowOrganizer")
-            val organizer = organizerClass.getConstructor().newInstance()
-            organizerClass.getMethod("applyTransaction", transactionClass)
-                .invoke(organizer, transaction)
-            lastError = "Task #$taskId ($component) difokuskan melalui WindowContainerTransaction."
+            applyForkdexWindowTransaction(task, false)
+            lastError = "Task #$taskId ($component) difokuskan."
             lastError
         } catch (error: Throwable) {
             val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error
-            lastError = "Gagal fokus task #$taskId: ${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}"
+            lastError = "Gagal membuka task #$taskId: " + cause.javaClass.simpleName + ": " + (cause.message ?: "tanpa detail")
             Log.w(TAG, lastError, cause)
             lastError
         }
     }
 
-    override fun forceStopRecentTask(displayId: Int, taskId: Int): String {
-        val (_, component) = verifiedFrameworkTask(displayId, taskId)
-            ?: return "Task #$taskId tidak ditemukan pada display $displayId."
-        val packageName = component.substringBefore('/')
-        if (!Regex("""^[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$""").matches(packageName)) {
-            return "Nama paket task tidak valid; force stop dibatalkan."
-        }
-        val result = runShizukuShell("am force-stop --user current $packageName", timeoutMs = 6000L, maxCharacters = 700)
-        val success = result.first == 0 && !result.second.contains("Error", true) &&
-            !result.second.contains("Exception", true)
-        lastError = if (success) "Force stop berhasil • $packageName" else "Force stop $packageName gagal: ${result.second}"
-        return lastError
-    }
-
-    override fun removeRecentTask(displayId: Int, taskId: Int): String {
-        val (task, component) = verifiedFrameworkTask(displayId, taskId)
-            ?: return "Task #$taskId tidak ditemukan pada display $displayId."
-        val ownPackage = serviceContext?.packageName ?: "com.kerenpandi.virtualdisplaytouch"
-        if (component.substringBefore('/') == ownPackage) {
-            return "Task Virtual Display Touch dilindungi agar aplikasi tidak tertutup sendiri."
-        }
+    override fun closeOpenTask(displayId: Int, taskId: Int): String {
         return try {
-            val service = frameworkTaskService()
-            val remove = service.javaClass.getMethod("removeTask", Int::class.javaPrimitiveType)
-            val removed = remove.invoke(service, taskId) as? Boolean ?: true
-            lastError = if (removed) "Task #$taskId dihapus dari Recent Android."
-                else "Android menolak penghapusan task #$taskId."
-            lastError
-        } catch (error: Throwable) {
-            val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error
-            lastError = "Gagal menghapus task #$taskId: ${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}"
-            Log.w(TAG, lastError, cause)
-            lastError
-        }
-    }
-
-    override fun clearAllRecentTasks(displayId: Int): String {
-        return try {
-            val tasks = frameworkTasks(displayId)
+            val (task, component) = verifiedOpenTask(displayId, taskId)
+                ?: return "Task #$taskId tidak ditemukan pada display $displayId."
             val ownPackage = serviceContext?.packageName ?: "com.kerenpandi.virtualdisplaytouch"
-            val ids = tasks.mapNotNull { task ->
-                val component = taskComponent(task) ?: return@mapNotNull null
-                if (component.substringBefore('/') == ownPackage) return@mapNotNull null
-                runCatching { taskInt(task, "taskId") }.getOrNull()
-            }.distinct()
-            if (ids.isEmpty()) return "Tidak ada task aplikasi yang aman untuk dibersihkan pada display $displayId."
-            val service = frameworkTaskService()
-            val remove = service.javaClass.getMethod("removeTask", Int::class.javaPrimitiveType)
-            var removed = 0
-            val failed = mutableListOf<Int>()
-            ids.forEach { id ->
-                val ok = runCatching { (remove.invoke(service, id) as? Boolean) != false }.getOrDefault(false)
-                if (ok) removed++ else failed.add(id)
-            }
-            lastError = if (failed.isEmpty()) {
-                "Clear Recent display $displayId: $removed/${ids.size} task dihapus."
-            } else {
-                "Clear Recent display $displayId: $removed/${ids.size} task dihapus • gagal ${failed.joinToString()}."
-            }
+            if (component.substringBefore('/') == ownPackage) return "Task Virtual Display Touch dilindungi."
+            applyForkdexWindowTransaction(task, true)
+            lastError = "Task #$taskId ditutup."
             lastError
         } catch (error: Throwable) {
             val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error
-            lastError = "Clear Recent gagal: ${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}"
+            lastError = "Gagal menutup task #$taskId: " + cause.javaClass.simpleName + ": " + (cause.message ?: "tanpa detail")
             Log.w(TAG, lastError, cause)
             lastError
         }
