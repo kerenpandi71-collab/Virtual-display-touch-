@@ -299,32 +299,22 @@ class ShizukuBridge(
         }
     }
 
-    fun getRecentTasks(displayId: Int): String {
+    fun getOpenTasks(displayId: Int): String {
         return try {
-            remote?.getRecentTasks(displayId) ?: "Shizuku UserService belum terhubung."
+            remote?.getOpenTasks(displayId) ?: "Shizuku UserService belum terhubung."
         } catch (error: Throwable) {
-            Log.e(TAG, "getRecentTasks failed", error)
-            "Gagal membaca Recent: ${error.cause?.message ?: error.message}"
+            Log.e(TAG, "getOpenTasks failed", error)
+            "Gagal membaca Open Tasks: ${error.cause?.message ?: error.message}"
         }
     }
 
-    fun moveRecentTaskToFront(displayId: Int, taskId: Int): String = runRecentAction("moveRecentTaskToFront") {
-        it.moveRecentTaskToFront(displayId, taskId)
-    }
+    fun focusOpenTask(displayId: Int, taskId: Int): String =
+        runOpenTaskAction("focusOpenTask") { it.focusOpenTask(displayId, taskId) }
 
-    fun forceStopRecentTask(displayId: Int, taskId: Int): String = runRecentAction("forceStopRecentTask") {
-        it.forceStopRecentTask(displayId, taskId)
-    }
+    fun closeOpenTask(displayId: Int, taskId: Int): String =
+        runOpenTaskAction("closeOpenTask") { it.closeOpenTask(displayId, taskId) }
 
-    fun removeRecentTask(displayId: Int, taskId: Int): String = runRecentAction("removeRecentTask") {
-        it.removeRecentTask(displayId, taskId)
-    }
-
-    fun clearAllRecentTasks(displayId: Int): String = runRecentAction("clearAllRecentTasks") {
-        it.clearAllRecentTasks(displayId)
-    }
-
-    private inline fun runRecentAction(
+    private inline fun runOpenTaskAction(
         action: String,
         operation: (IVirtualDisplayService) -> String
     ): String {
@@ -333,7 +323,7 @@ class ShizukuBridge(
             operation(service).also { onStatus(it) }
         } catch (error: Throwable) {
             Log.e(TAG, "$action failed", error)
-            "Operasi Recent gagal: ${error.cause?.message ?: error.message}"
+            "Operasi Open Tasks gagal: ${error.cause?.message ?: error.message}"
         }
     }
 
