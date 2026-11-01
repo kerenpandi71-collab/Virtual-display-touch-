@@ -1152,7 +1152,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         })
         dialogRoot.addView(heading)
 
-        val taskPattern = Regex("""taskId=(\\d+)(?:\\s*•\\s*([^\\s]+))?""")
+        val taskPattern = Regex("""taskId=(\d+)(?:\s*•\s*([^\s]+))?""")
         val tasks = taskPattern.findAll(result).mapNotNull { match ->
             val id = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
             val component = match.groupValues.getOrNull(2).orEmpty()
@@ -1169,7 +1169,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         if (tasks.isEmpty()) {
             grid.addView(TextView(this).apply {
                 text = if (result.contains("task aktif") || result.contains("Recent display")) result
-                    else "Belum ada aplikasi yang terbaca pada display ini.\\n\\n$result"
+                    else "Belum ada aplikasi yang terbaca pada display ini.\n\n$result"
                 textSize = 13f
                 setTextColor(Color.LTGRAY)
                 gravity = Gravity.CENTER
