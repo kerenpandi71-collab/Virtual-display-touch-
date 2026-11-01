@@ -2212,7 +2212,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             val touchpadTop = if (touchpadPortraitHasCustomPosition) {
                 val panelHeight = (rootHeight * touchpadPortraitHeightPercent / 100)
                     .coerceIn(dp(120), (rootHeight * 65 / 100).coerceAtLeast(dp(120)))
-                (rootHeight * touchpadPortraitYPercent / 100f).toInt()
+                ((rootHeight - panelHeight).coerceAtLeast(0) * touchpadPortraitYPercent / 100f).toInt()
                     .coerceIn(0, (rootHeight - panelHeight).coerceAtLeast(0))
             } else {
                 (rootHeight * 70 / 100).coerceAtMost(rootHeight)
