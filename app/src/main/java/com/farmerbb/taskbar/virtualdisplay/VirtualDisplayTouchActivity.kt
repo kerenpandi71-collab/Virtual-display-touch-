@@ -69,6 +69,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var resolutionWidthInput: EditText
     private lateinit var resolutionHeightInput: EditText
     private lateinit var resolutionDpiInput: EditText
+    private var resolutionEditorLandscape = false
+    private lateinit var resolutionProfileLabel: TextView
     private lateinit var touchpadSizeValue: TextView
     private lateinit var sensitivityValue: TextView
     private lateinit var touchpadSizeSeekBar: SeekBar
@@ -169,6 +171,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         targetWidth = displayPrefs.getInt("${resolutionSuffix}_width", 960).coerceIn(320, 2560)
         targetHeight = displayPrefs.getInt("${resolutionSuffix}_height", 820).coerceIn(320, 2560)
         targetDpi = displayPrefs.getInt("${resolutionSuffix}_dpi", 160).coerceIn(120, 640)
+        resolutionEditorLandscape = landscapeAtLaunch
         previewSizePortraitPercent = displayPrefs.getInt("preview_portrait_percent", 100).coerceIn(50, 100)
         previewSizeLandscapePercent = displayPrefs.getInt("preview_landscape_percent", 100).coerceIn(50, 100)
         previewSizePercent = if (landscapeAtLaunch) previewSizeLandscapePercent else previewSizePortraitPercent
@@ -361,6 +364,15 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         panelPositionRow.addView(panelPositionSeekBar, LinearLayout.LayoutParams(0, dp(28), 1f))
         topBar.addView(panelPositionRow)
+        val resolutionProfileRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        resolutionProfileLabel = TextView(this).apply {
+            text = if (resolutionEditorLandscape) "Profil: Landscape" else "Profil: Portrait"
+            textSize = 10f; setTextColor(Color.WHITE)
+        }
+        resolutionProfileRow.addView(resolutionProfileLabel, LinearLayout.LayoutParams(0, dp(30), 1f))
+        resolutionProfileRow.addView(actionButton("Portrait") { selectResolutionProfile(false) }, LinearLayout.LayoutParams(dp(86), dp(30)))
+        resolutionProfileRow.addView(actionButton("Landscape") { selectResolutionProfile(true) }, LinearLayout.LayoutParams(dp(92), dp(30)))
+        topBar.addView(resolutionProfileRow)
         val resolutionRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         fun resolutionInput(initial: String, hintText: String, widthDp: Int) = EditText(this).apply {
             setText(initial); hint = hintText; textSize = 10f; setSingleLine(true)
@@ -2120,15 +2132,20 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             status.text = "Resolusi harus 320–2560 px dan DPI 120–640."
             return
         }
-        targetWidth = width
-        targetHeight = height
-        targetDpi = dpi
-        val resolutionSuffix = if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) "landscape" else "portrait"
+        val resolutionSuffix = if (resolutionEditorLandscape) "landscape" else "portrait"
+        val currentLandscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         getSharedPreferences("saku_desktop_resolution", Context.MODE_PRIVATE).edit()
             .putInt("${resolutionSuffix}_width", width)
             .putInt("${resolutionSuffix}_height", height)
             .putInt("${resolutionSuffix}_dpi", dpi)
             .apply()
+        if (resolutionEditorLandscape != currentLandscape) {
+            status.text = "Profil ${if (resolutionEditorLandscape) "Landscape" else "Portrait"} tersimpan: ${width}×${height} • ${dpi} DPI. Profil aktif tidak berubah sampai orientasi diganti."
+            return
+        }
+        targetWidth = width
+        targetHeight = height
+        targetDpi = dpi
         cursorX = cursorX.coerceIn(0f, (targetWidth - 1).toFloat())
         cursorY = cursorY.coerceIn(0f, (targetHeight - 1).toFloat())
         preview?.contentDescription = "Desktop virtual display ${targetWidth} x ${targetHeight} • ${targetDpi} DPI"
@@ -2141,6 +2158,39 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         updateDesktopLayout((preview?.parent as? View)?.width ?: 0, (preview?.parent as? View)?.height ?: 0)
     }
 
+    private fun selectResolutionProfile(landscape: Boolean) {
+        resolutionEditorLandscape = landscape
+        val prefs = getSharedPreferences("saku_desktop_resolution", Context.MODE_PRIVATE)
+        val suffix = if (landscape) "landscape" else "portrait"
+        val width = prefs.getInt("${suffix}_width", 960).coerceIn(320, 2560)
+        val height = prefs.getInt("${suffix}_height", 820).coerceIn(320, 2560)
+        val dpi = prefs.getInt("${suffix}_dpi", 160).coerceIn(120, 640)
+        resolutionProfileLabel.text = "Profil: ${if (landscape) "Landscape" else "Portrait"}"
+        resolutionWidthInput.setText(width.toString())
+        resolutionHeightInput.setText(height.toString())
+        resolutionDpiInput.setText(dpi.toString())
+        status.text = "Mengedit profil ${if (landscape) "Landscape" else "Portrait"}. Perubahan profil lain tetap aman."
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val landscape = newConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val prefs = getSharedPreferences("saku_desktop_resolution", Context.MODE_PRIVATE)
+        val suffix = if (landscape) "landscape" else "portrait"
+        targetWidth = prefs.getInt("${suffix}_width", 960).coerceIn(320, 2560)
+        targetHeight = prefs.getInt("${suffix}_height", 820).coerceIn(320, 2560)
+        targetDpi = prefs.getInt("${suffix}_dpi", 160).coerceIn(120, 640)
+        cursorX = cursorX.coerceIn(0f, (targetWidth - 1).toFloat())
+        cursorY = cursorY.coerceIn(0f, (targetHeight - 1).toFloat())
+        preview?.contentDescription = "Desktop virtual display ${targetWidth} x ${targetHeight} • ${targetDpi} DPI"
+        preview?.holder?.setFixedSize(targetWidth, targetHeight)
+        selectResolutionProfile(landscape)
+        preview?.post {
+            val parent = preview?.parent as? View
+            if ((virtualDisplayController?.displayId ?: -1) >= 0) startOwnedVirtualDisplay()
+            if (parent != null) updateDesktopLayout(parent.width, parent.height)
+        }
+    }
     private fun updateDesktopLayout(rootWidth: Int, rootHeight: Int) {
         if (rootWidth <= 0 || rootHeight <= 0 || !::bottomPanel.isInitialized) return
         val landscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
