@@ -560,6 +560,16 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 arrayOf(properties), arrayOf(coordinates), 0, buttonState,
                 1f, 1f, 0, 0, InputDevice.SOURCE_MOUSE, 0
             )
+            // Mouse pointer position is a separate field from the pointer's touch coordinates
+            // on modern Android. Set it when the platform exposes the hidden API so SystemUI's
+            // native pointer controller can draw the real Android cursor on this display.
+            runCatching {
+                MotionEvent::class.java.getMethod(
+                    "setCursorPosition",
+                    Float::class.javaPrimitiveType,
+                    Float::class.javaPrimitiveType
+                ).invoke(event, x, y)
+            }
             setDisplayIdMethod.invoke(event, displayId)
             val accepted = injectInputEventMethod.invoke(
                 inputManagerService, event, INJECT_WAIT_FOR_RESULT
