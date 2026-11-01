@@ -752,217 +752,173 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         }
     }
 
-    /** Reads tasks using both ActivityManager views and associates them with their display. */
+    /**
+     * Recent task access follows Forkdex's framework-task model:
+     * ActivityTaskManager.getTasks(displayId) provides structured TaskInfo objects,
+     * and task tokens are reordered through WindowContainerTransaction. No dumpsys
+     * parsing and no am start fallback are used for task selection.
+     */
+    private fun frameworkTaskService(): Any {
+        enableHiddenApiAccess()
+        val manager = Class.forName("android.app.ActivityTaskManager")
+        return manager.getDeclaredMethod("getService").apply { isAccessible = true }
+            .invoke(null) ?: throw IllegalStateException("ActivityTaskManager service tidak tersedia")
+    }
+
+    private fun frameworkTasks(displayId: Int): List<Any> {
+        require(displayId in 0..10000) { "Display ID tidak valid: $displayId" }
+        val service = frameworkTaskService()
+        val method = service.javaClass.getMethod(
+            "getTasks", Int::class.javaPrimitiveType,
+            Boolean::class.javaPrimitiveType, Boolean::class.javaPrimitiveType,
+            Int::class.javaPrimitiveType
+        )
+        val result = method.invoke(service, 100, false, false, displayId)
+        return (result as? List<*>)?.filterNotNull()
+            ?: throw IllegalStateException("ActivityTaskManager tidak mengembalikan daftar task")
+    }
+
+    private fun taskInt(task: Any, name: String): Int {
+        val field = task.javaClass.getField(name)
+        return field.getInt(task)
+    }
+
+    private fun taskComponent(task: Any): String? {
+        val top = runCatching { task.javaClass.getField("topActivity").get(task) }.getOrNull()
+        val base = runCatching { task.javaClass.getField("baseActivity").get(task) }.getOrNull()
+        val component = top ?: base ?: return null
+        val flattened = component.javaClass.getMethod("flattenToShortString").invoke(component) as? String
+        return flattened?.takeIf { it.matches(Regex("""[A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+""")) }
+    }
+
+    private fun findFrameworkTask(displayId: Int, taskId: Int): Any? {
+        if (taskId <= 0) return null
+        return frameworkTasks(displayId).firstOrNull { task ->
+            runCatching { taskInt(task, "taskId") == taskId }.getOrDefault(false)
+        }
+    }
+
     override fun getRecentTasks(displayId: Int): String {
-        if (displayId !in 0..10000) return "Display ID tidak valid."
         return try {
-            // The activities dump contains display/root-task context; recents provides a second
-            // task-ID source on Android builds whose activities formatting differs.
-            val activities = runShizukuShell(
-                "dumpsys activity activities",
-                timeoutMs = 10000L,
-                maxCharacters = 120000
-            )
-            if (activities.first != 0) {
-                lastError = "Gagal membaca ActivityManager (exit=${activities.first}): ${activities.second.take(700)}"
-                return lastError
-            }
-            val recents = runShizukuShell(
-                "dumpsys activity recents",
-                timeoutMs = 8000L,
-                maxCharacters = 80000
-            )
-            val taskHeader = Regex("""(?i)Task\{[^}]*?#([0-9]+)[^}]*?\}""")
-            val displayMarker = Regex(
-                """(?i)(?:mDisplayId|displayId|display\s*id)\s*[=:]\s*([0-9]+)|display\s*#\s*([0-9]+)"""
-            )
-            val componentPattern = Regex("""[A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+""")
-            val found = linkedMapOf<Int, String>()
-            val lines = activities.second.lines()
-            var contextLines = mutableListOf<String>()
-            var taskLines = mutableListOf<String>()
-            var currentTaskId: Int? = null
-
-            fun idsIn(source: String): Set<Int> = displayMarker.findAll(source).mapNotNull {
-                (it.groupValues.getOrNull(1)?.takeIf(String::isNotBlank)
-                    ?: it.groupValues.getOrNull(2))?.toIntOrNull()
-            }.toSet()
-
-            fun flushTask() {
-                val id = currentTaskId ?: return
-                val joined = (contextLines + taskLines).joinToString("\n")
-                val ownIds = idsIn(taskLines.joinToString("\n"))
-                val contextIds = idsIn(contextLines.joinToString("\n"))
-                if (displayId in ownIds || (ownIds.isEmpty() && displayId in contextIds)) {
-                    val component = componentPattern.find(taskLines.joinToString("\n"))?.value
-                        ?: componentPattern.find(joined)?.value
-                    found[id] = "taskId=$id" + (component?.let { " • $it" } ?: "")
-                }
-                taskLines.clear()
-                currentTaskId = null
-            }
-
-            for (line in lines) {
-                val header = taskHeader.find(line)
-                if (header != null) {
-                    flushTask()
-                    currentTaskId = header.groupValues[1].toIntOrNull()
-                    taskLines.add(line)
-                    continue
-                }
-                // RootTask/display headers delimit the inherited display context.
-                if (line.contains("RootTask", true) || line.contains("Display #", true)) {
-                    flushTask()
-                    contextLines.clear()
-                    contextLines.add(line)
-                    continue
-                }
-                if (currentTaskId == null) {
-                    if (contextLines.size >= 45) contextLines.removeAt(0)
-                    contextLines.add(line)
-                } else if (taskLines.size < 100) {
-                    taskLines.add(line)
-                }
-            }
-            flushTask()
-
-            // Fallback: task IDs from recents are included only when the activities dump
-            // explicitly confirms the requested display, preventing main-display leakage.
-            if (found.isEmpty() && recents.first == 0) {
-                val recentIds = taskHeader.findAll(recents.second).mapNotNull {
-                    it.groupValues[1].toIntOrNull()
-                }.toSet()
-                if (recentIds.isNotEmpty()) {
-                    lastError = "Task ditemukan di Recent Android (${recentIds.size}), tetapi format display pada dumpsys activities belum dapat dipastikan untuk display $displayId. Periksa Diagnostics."
-                    return lastError
-                }
-            }
-
-            if (found.isNotEmpty()) {
-                lastError = "Recent display $displayId • ${found.size} task terbaca."
-                found.values.take(30).joinToString("\n")
-            } else {
-                val totalActivityTasks = taskHeader.findAll(activities.second).count()
-                lastError = if (totalActivityTasks > 0) {
-                    "Ada $totalActivityTasks task aktif, tetapi Android tidak memberi penanda display $displayId yang bisa diverifikasi. Bukan berarti daftar task kosong."
-                } else if (activities.second.length >= 119000) {
-                    "Output ActivityManager terpotong sebelum seluruh task terbaca. Coba lagi setelah mengurangi aplikasi aktif."
-                } else {
-                    "ActivityManager tidak melaporkan task aktif pada dump ini untuk display $displayId."
-                }
-                lastError
-            }
-        } catch (error: Throwable) {
-            lastError = "Gagal membaca Recent: ${error.javaClass.simpleName}: ${error.message ?: "tanpa detail"}"
-            Log.w(TAG, lastError, error)
-            lastError
-        }
-    }
-
-    private fun verifiedRecentTaskComponent(displayId: Int, taskId: Int): String? {
-        if (displayId !in 0..10000 || taskId <= 0) return null
-        val recent = getRecentTasks(displayId)
-        if (!recent.startsWith("taskId=") && !recent.contains("\ntaskId=")) return null
-        val line = recent.lineSequence().firstOrNull { it.startsWith("taskId=$taskId") } ?: return null
-        return Regex("""^taskId=$taskId(?: • ([A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+))?$""")
-            .find(line)?.groupValues?.getOrNull(1)
-    }
-
-    override fun moveRecentTaskToFront(displayId: Int, taskId: Int): String {
-        val component = verifiedRecentTaskComponent(displayId, taskId)
-            ?: return "Task #$taskId tidak terverifikasi pada virtual display $displayId."
-        val packageName = component.substringBefore('/')
-        if (!Regex("""^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$""").matches(packageName)) {
-            return "Nama paket task tidak valid; pemulihan dibatalkan."
-        }
-        return try {
-            // Focus the existing Android task; do not launch a second activity/task.
-            val managerClass = Class.forName("android.app.ActivityTaskManager")
-            val getService = managerClass.getDeclaredMethod("getService").apply {
-                isAccessible = true
-            }
-            val service = getService.invoke(null)
-            val applicationThreadClass = Class.forName("android.app.IApplicationThread")
-            val moveMethod = service.javaClass.getMethod(
-                "moveTaskToFront",
-                applicationThreadClass,
-                String::class.java,
-                Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType,
-                android.os.Bundle::class.java
-            )
-            moveMethod.invoke(service, null, "com.android.shell", taskId, 0, android.os.Bundle())
-            lastError = "Task $taskId ($packageName) dikembalikan ke depan pada display $displayId."
-            lastError
+            val tasks = frameworkTasks(displayId)
+            val ownPackage = serviceContext?.packageName ?: "com.kerenpandi.virtualdisplaytouch"
+            val entries = tasks.mapNotNull { task ->
+                val id = runCatching { taskInt(task, "taskId") }.getOrNull() ?: return@mapNotNull null
+                val component = taskComponent(task) ?: return@mapNotNull null
+                if (component.substringBefore('/') == ownPackage) return@mapNotNull null
+                "taskId=$id • $component"
+            }.distinct().take(50)
+            lastError = "Forkdex framework Recent • display=$displayId • ${entries.size} task."
+            if (entries.isEmpty()) "Tidak ada task aplikasi pada display $displayId." else entries.joinToString("\n")
         } catch (error: Throwable) {
             val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error
-            lastError = "Gagal memulihkan task #" + taskId + " pada display " + displayId +
-                ": " + cause.javaClass.simpleName + ": " + (cause.message ?: "tanpa detail")
+            lastError = "Gagal membaca framework Recent: ${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}"
             Log.w(TAG, lastError, cause)
             lastError
         }
     }
+
+    private fun verifiedFrameworkTask(displayId: Int, taskId: Int): Pair<Any, String>? {
+        if (displayId !in 0..10000 || taskId <= 0) return null
+        val task = findFrameworkTask(displayId, taskId) ?: return null
+        val component = taskComponent(task) ?: return null
+        return task to component
+    }
+
+    override fun moveRecentTaskToFront(displayId: Int, taskId: Int): String {
+        return try {
+            val (task, component) = verifiedFrameworkTask(displayId, taskId)
+                ?: return "Task #$taskId tidak ditemukan pada display $displayId."
+            val token = task.javaClass.getField("token").get(task)
+                ?: throw IllegalStateException("Task token tidak tersedia.")
+            val tokenClass = Class.forName("android.window.WindowContainerToken")
+            val transactionClass = Class.forName("android.window.WindowContainerTransaction")
+            val transaction = transactionClass.getConstructor().newInstance()
+            val reorder = transactionClass.getMethod(
+                "reorder", tokenClass, Boolean::class.javaPrimitiveType
+            )
+            reorder.invoke(transaction, token, true)
+            // Same WindowContainerTransaction task-token reorder used by Forkdex.
+            val organizerClass = Class.forName("android.window.WindowOrganizer")
+            val organizer = organizerClass.getConstructor().newInstance()
+            organizerClass.getMethod("applyTransaction", transactionClass)
+                .invoke(organizer, transaction)
+            lastError = "Task #$taskId ($component) difokuskan melalui WindowContainerTransaction."
+            lastError
+        } catch (error: Throwable) {
+            val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error
+            lastError = "Gagal fokus task #$taskId: ${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}"
+            Log.w(TAG, lastError, cause)
+            lastError
+        }
+    }
+
     override fun forceStopRecentTask(displayId: Int, taskId: Int): String {
-        val component = verifiedRecentTaskComponent(displayId, taskId)
-            ?: return "Task #$taskId tidak terverifikasi pada virtual display $displayId."
+        val (_, component) = verifiedFrameworkTask(displayId, taskId)
+            ?: return "Task #$taskId tidak ditemukan pada display $displayId."
         val packageName = component.substringBefore('/')
-        if (!Regex("""^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$""").matches(packageName)) {
+        if (!Regex("""^[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$""").matches(packageName)) {
             return "Nama paket task tidak valid; force stop dibatalkan."
         }
         val result = runShizukuShell("am force-stop --user current $packageName", timeoutMs = 6000L, maxCharacters = 700)
-        val success = result.first == 0 &&
-            !result.second.contains("Error", true) &&
+        val success = result.first == 0 && !result.second.contains("Error", true) &&
             !result.second.contains("Exception", true)
-        lastError = if (success) "Force stop berhasil • $packageName"
-            else "Force stop $packageName gagal: ${result.second}"
+        lastError = if (success) "Force stop berhasil • $packageName" else "Force stop $packageName gagal: ${result.second}"
         return lastError
     }
 
     override fun removeRecentTask(displayId: Int, taskId: Int): String {
-        val component = verifiedRecentTaskComponent(displayId, taskId)
-            ?: return "Task #$taskId tidak terverifikasi pada virtual display $displayId."
-        if (component.substringBefore('/') == "com.kerenpandi.virtualdisplaytouch") {
+        val (task, component) = verifiedFrameworkTask(displayId, taskId)
+            ?: return "Task #$taskId tidak ditemukan pada display $displayId."
+        val ownPackage = serviceContext?.packageName ?: "com.kerenpandi.virtualdisplaytouch"
+        if (component.substringBefore('/') == ownPackage) {
             return "Task Virtual Display Touch dilindungi agar aplikasi tidak tertutup sendiri."
         }
-        val result = runShizukuShell("am task remove $taskId", timeoutMs = 5000L, maxCharacters = 700)
-        val success = result.first == 0 &&
-            !result.second.contains("Error", true) &&
-            !result.second.contains("Exception", true)
-        lastError = if (success) "Task #$taskId dihapus dari Recent."
-            else "Gagal menghapus task #$taskId: ${result.second}"
-        return lastError
+        return try {
+            val service = frameworkTaskService()
+            val remove = service.javaClass.getMethod("removeTask", Int::class.javaPrimitiveType)
+            val removed = remove.invoke(service, taskId) as? Boolean ?: true
+            lastError = if (removed) "Task #$taskId dihapus dari Recent Android."
+                else "Android menolak penghapusan task #$taskId."
+            lastError
+        } catch (error: Throwable) {
+            val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error
+            lastError = "Gagal menghapus task #$taskId: ${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}"
+            Log.w(TAG, lastError, cause)
+            lastError
+        }
     }
 
     override fun clearAllRecentTasks(displayId: Int): String {
-        if (displayId !in 0..10000) return "Display ID tidak valid."
-        val recent = getRecentTasks(displayId)
-        if (!recent.startsWith("taskId=") && !recent.contains("\ntaskId=")) {
-            return "Recent tidak dibersihkan karena daftar task display $displayId tidak valid: $recent"
-        }
-        val ids = Regex("""(?m)^taskId=(\d+) • ([A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+)$""")
-            .findAll(recent)
-            .mapNotNull { match ->
-                val id = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
-                val packageName = match.groupValues[2].substringBefore('/')
-                if (packageName == "com.kerenpandi.virtualdisplaytouch") null else id
+        return try {
+            val tasks = frameworkTasks(displayId)
+            val ownPackage = serviceContext?.packageName ?: "com.kerenpandi.virtualdisplaytouch"
+            val ids = tasks.mapNotNull { task ->
+                val component = taskComponent(task) ?: return@mapNotNull null
+                if (component.substringBefore('/') == ownPackage) return@mapNotNull null
+                runCatching { taskInt(task, "taskId") }.getOrNull()
+            }.distinct()
+            if (ids.isEmpty()) return "Tidak ada task aplikasi yang aman untuk dibersihkan pada display $displayId."
+            val service = frameworkTaskService()
+            val remove = service.javaClass.getMethod("removeTask", Int::class.javaPrimitiveType)
+            var removed = 0
+            val failed = mutableListOf<Int>()
+            ids.forEach { id ->
+                val ok = runCatching { (remove.invoke(service, id) as? Boolean) != false }.getOrDefault(false)
+                if (ok) removed++ else failed.add(id)
             }
-            .distinct()
-            .toList()
-        if (ids.isEmpty()) return "Tidak ada task aplikasi yang aman untuk dibersihkan pada display $displayId. Aplikasi Virtual Display Touch dilindungi."
-        var removed = 0
-        val failures = mutableListOf<String>()
-        ids.forEach { id ->
-            val result = runShizukuShell("am task remove $id", timeoutMs = 4000L, maxCharacters = 350)
-            if (result.first == 0 && !result.second.contains("Error", true) &&
-                !result.second.contains("Exception", true)) removed++ else failures.add("#$id")
+            lastError = if (failed.isEmpty()) {
+                "Clear Recent display $displayId: $removed/${ids.size} task dihapus."
+            } else {
+                "Clear Recent display $displayId: $removed/${ids.size} task dihapus • gagal ${failed.joinToString()}."
+            }
+            lastError
+        } catch (error: Throwable) {
+            val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error
+            lastError = "Clear Recent gagal: ${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}"
+            Log.w(TAG, lastError, cause)
+            lastError
         }
-        val failureSummary = failures.joinToString(separator = ", ")
-        lastError = if (failures.isEmpty()) {
-            "Clear Recent display $displayId: $removed/${ids.size} task dihapus."
-        } else {
-            "Clear Recent display $displayId: $removed/${ids.size} task dihapus • gagal $failureSummary."
-        }
-        return lastError
     }
 
     override fun getLastError(): String = lastError
