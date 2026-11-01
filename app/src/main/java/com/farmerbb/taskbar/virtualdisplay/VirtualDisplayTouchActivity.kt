@@ -1143,7 +1143,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 val packageName = component.substringBefore('/')
                 if (packageName.isBlank()) return@mapNotNull null
                 OpenTask(id, component, packageName)
-            }.distinctBy { it.id }
+            }.distinctBy { it.id }.toList()
 
         val root = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
@@ -1279,7 +1279,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 }
                 grid.addView(tile, params)
             }
-            scroll.addView(grid, ScrollView.LayoutParams(-1, -2))
+            scroll.addView(grid, ViewGroup.LayoutParams(-1, -2))
             root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f).apply {
                 topMargin = d(12)
             })
