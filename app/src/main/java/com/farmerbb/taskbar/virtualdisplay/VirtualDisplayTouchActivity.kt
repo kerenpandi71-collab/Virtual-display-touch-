@@ -2381,31 +2381,18 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 keyboardPanel.layoutParams = it
             }
         } else {
-            // Portrait keeps the existing stacked layout and floating keyboard behavior.
-            val maxPreviewWidth = (rootWidth * previewSizePercent / 100).coerceIn(dp(180), rootWidth)
-            // Portrait preview can grow down toward the touchpad instead of stopping
-            // at the old 40% cap. Keep a small gap above the touchpad and preserve
-            // the virtual display aspect ratio so the image is not stretched.
-            val touchpadTop = if (touchpadPortraitHasCustomPosition) {
-                val panelHeight = (rootHeight * touchpadPortraitHeightPercent / 100)
-                    .coerceIn(dp(120), (rootHeight * 65 / 100).coerceAtLeast(dp(120)))
-                ((rootHeight - panelHeight).coerceAtLeast(0) * touchpadPortraitYPercent / 100f).toInt()
-                    .coerceIn(0, (rootHeight - panelHeight).coerceAtLeast(0))
-            } else {
-                (rootHeight * 70 / 100).coerceAtMost(rootHeight)
-            }
-            val maxPreviewHeight = (touchpadTop - dp(14)).coerceAtLeast(dp(100))
-            var desktopWidth = maxPreviewWidth
-            var desktopHeight = (desktopWidth / aspect).toInt()
-            if (desktopHeight > maxPreviewHeight) {
-                desktopHeight = maxPreviewHeight
-                desktopWidth = (desktopHeight * aspect).toInt()
-            }
+            // Portrait preview fills the app height, matching the Cyber Saku Dex
+            // full-height preview behavior. Width remains controlled by its slider.
+            // The virtual display resolution stays unchanged; SurfaceView scales to frame.
+            val desktopWidth = (rootWidth * previewSizePercent / 100)
+                .coerceIn(dp(180).coerceAtMost(rootWidth), rootWidth)
+            val desktopHeight = rootHeight
             previewParams?.let {
                 it.width = desktopWidth
                 it.height = desktopHeight
                 it.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
                 it.leftMargin = 0; it.rightMargin = 0
+                it.topMargin = 0; it.bottomMargin = 0
                 preview?.layoutParams = it
             }
             panelParams?.let {
