@@ -455,7 +455,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             typeface = Typeface.DEFAULT_BOLD
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColors(intArrayOf(Color.rgb(0, 220, 255), Color.rgb(68, 54, 235), Color.rgb(148, 42, 255)), GradientDrawable.Orientation.TL_BR)
+                setOrientation(GradientDrawable.Orientation.TL_BR)
+                setColors(intArrayOf(Color.rgb(0, 220, 255), Color.rgb(68, 54, 235), Color.rgb(148, 42, 255)))
                 setStroke(dp(2), Color.rgb(116, 239, 255))
             }
             elevation = dp(12).toFloat()
@@ -1076,10 +1077,11 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     private fun roundedPanel(alpha: Int, radius: Int) = GradientDrawable().apply {
+        setOrientation(GradientDrawable.Orientation.TL_BR)
         setColors(intArrayOf(
             Color.argb(alpha.coerceIn(0, 255), 12, 27, 68),
             Color.argb(alpha.coerceIn(0, 255), 7, 13, 42)
-        ), GradientDrawable.Orientation.TL_BR)
+        ))
         cornerRadius = dp(radius).toFloat()
         setStroke(dp(1), Color.argb(145, 48, 190, 255))
     }
