@@ -308,6 +308,35 @@ class ShizukuBridge(
         }
     }
 
+    fun moveRecentTaskToFront(displayId: Int, taskId: Int): String = runRecentAction("moveRecentTaskToFront") {
+        it.moveRecentTaskToFront(displayId, taskId)
+    }
+
+    fun forceStopRecentTask(displayId: Int, taskId: Int): String = runRecentAction("forceStopRecentTask") {
+        it.forceStopRecentTask(displayId, taskId)
+    }
+
+    fun removeRecentTask(displayId: Int, taskId: Int): String = runRecentAction("removeRecentTask") {
+        it.removeRecentTask(displayId, taskId)
+    }
+
+    fun clearAllRecentTasks(displayId: Int): String = runRecentAction("clearAllRecentTasks") {
+        it.clearAllRecentTasks(displayId)
+    }
+
+    private inline fun runRecentAction(
+        action: String,
+        operation: (IVirtualDisplayService) -> String
+    ): String {
+        return try {
+            val service = remote ?: return "Shizuku UserService belum terhubung."
+            operation(service).also { onStatus(it) }
+        } catch (error: Throwable) {
+            Log.e(TAG, "$action failed", error)
+            "Operasi Recent gagal: ${error.cause?.message ?: error.message}"
+        }
+    }
+
     fun getLastError(): String = try {
         remote?.getLastError() ?: "Shizuku UserService belum terhubung."
     } catch (error: Throwable) {
