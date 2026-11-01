@@ -27,6 +27,7 @@ import org.lsposed.hiddenapibypass.HiddenApiBypass
  */
 class ShizukuUserService() : IVirtualDisplayService.Stub() {
     private var serviceContext: Context? = null
+    @Volatile private var taskWindowOrganizer: Any? = null
     private var virtualDisplay: VirtualDisplay? = null
     @Volatile private var lastError: String = "Belum ada operasi."
     private var mouseButtonDownTime: Long = 0L
@@ -828,9 +829,13 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
 
         // Match Forkdex: share WM's surface transaction queue and submit via ATM's WOC.
         val organizerClass = Class.forName("android.window.WindowOrganizer")
-        val organizer = organizerClass.getConstructor().newInstance()
-        val shared = organizerClass.getMethod("shareTransactionQueue").invoke(organizer) as? Boolean
-        if (shared != true) throw IllegalStateException("WindowManager transaction queue tidak tersedia")
+        val organizer = taskWindowOrganizer ?: synchronized(this) {
+            taskWindowOrganizer ?: organizerClass.getConstructor().newInstance().also { created ->
+                val shared = organizerClass.getMethod("shareTransactionQueue").invoke(created) as? Boolean
+                if (shared != true) throw IllegalStateException("WindowManager transaction queue tidak tersedia")
+                taskWindowOrganizer = created
+            }
+        }
         val service = frameworkTaskService()
         val controller = service.javaClass.getMethod("getWindowOrganizerController").invoke(service)
             ?: throw IllegalStateException("WindowOrganizerController tidak tersedia")
