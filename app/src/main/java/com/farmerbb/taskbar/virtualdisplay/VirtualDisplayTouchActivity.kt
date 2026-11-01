@@ -92,6 +92,11 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var imeBridgeEditText: EditText
     private var keyboardPanelVisible = false
     private var gamepadModeActive = false
+    private var assistantBallView: TextView? = null
+    private var assistantBallPortraitXPercent = 95
+    private var assistantBallPortraitYPercent = 50
+    private var assistantBallLandscapeXPercent = 95
+    private var assistantBallLandscapeYPercent = 50
     @Volatile private var systemKeyboardRequested = false
     private var keyboardWidthPercent = 100
     private var keyboardHeightDp = 240
@@ -514,8 +519,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     ballDownX = event.rawX; ballDownY = event.rawY
-                    ballStartX = if (ballParams.gravity and Gravity.RIGHT == Gravity.RIGHT) (root.width - view.width - ballParams.rightMargin).coerceAtLeast(0).toFloat() else ballParams.leftMargin.toFloat()
-                    ballStartY = if (ballParams.gravity and Gravity.CENTER_VERTICAL == Gravity.CENTER_VERTICAL) ((root.height - view.height) / 2f) else ballParams.topMargin.toFloat()
+                    ballStartX = view.left.toFloat().coerceIn(0f, (root.width - view.width).coerceAtLeast(0).toFloat())
+                    ballStartY = view.top.toFloat().coerceIn(0f, (root.height - view.height).coerceAtLeast(0).toFloat())
                     ballDragged = false
                     true
                 }
@@ -528,6 +533,22 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         ballParams.leftMargin = (ballStartX + dx).toInt().coerceIn(0, (root.width - view.width).coerceAtLeast(0))
                         ballParams.topMargin = (ballStartY + dy).toInt().coerceIn(0, (root.height - view.height).coerceAtLeast(0))
                         root.updateViewLayout(view, ballParams)
+                        val maxX = (root.width - view.width).coerceAtLeast(1)
+                        val maxY = (root.height - view.height).coerceAtLeast(1)
+                        val xPercent = (ballParams.leftMargin.toFloat() / maxX * 100).toInt().coerceIn(0, 100)
+                        val yPercent = (ballParams.topMargin.toFloat() / maxY * 100).toInt().coerceIn(0, 100)
+                        val landscapeNow = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                        if (landscapeNow) {
+                            assistantBallLandscapeXPercent = xPercent
+                            assistantBallLandscapeYPercent = yPercent
+                        } else {
+                            assistantBallPortraitXPercent = xPercent
+                            assistantBallPortraitYPercent = yPercent
+                        }
+                        getSharedPreferences("saku_assistant_ball", Context.MODE_PRIVATE).edit()
+                            .putInt(if (landscapeNow) "landscape_x" else "portrait_x", xPercent)
+                            .putInt(if (landscapeNow) "landscape_y" else "portrait_y", yPercent)
+                            .apply()
                     }
                     true
                 }
@@ -649,6 +670,23 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             }
         }
         root.addView(assistantBall, ballParams)
+        assistantBallView = assistantBall
+        val ballPrefs = getSharedPreferences("saku_assistant_ball", Context.MODE_PRIVATE)
+        assistantBallPortraitXPercent = ballPrefs.getInt("portrait_x", 95).coerceIn(0, 100)
+        assistantBallPortraitYPercent = ballPrefs.getInt("portrait_y", 50).coerceIn(0, 100)
+        assistantBallLandscapeXPercent = ballPrefs.getInt("landscape_x", 95).coerceIn(0, 100)
+        assistantBallLandscapeYPercent = ballPrefs.getInt("landscape_y", 50).coerceIn(0, 100)
+        assistantBall.post {
+            val maxX = (root.width - assistantBall.width).coerceAtLeast(0)
+            val maxY = (root.height - assistantBall.height).coerceAtLeast(0)
+            val landscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            val xPercent = if (landscape) assistantBallLandscapeXPercent else assistantBallPortraitXPercent
+            val yPercent = if (landscape) assistantBallLandscapeYPercent else assistantBallPortraitYPercent
+            ballParams.gravity = Gravity.TOP or Gravity.START
+            ballParams.leftMargin = (maxX * xPercent / 100f).toInt()
+            ballParams.topMargin = (maxY * yPercent / 100f).toInt()
+            root.updateViewLayout(assistantBall, ballParams)
+        }
         gamepadOverlay = VirtualMobaGamepadView(
             this,
             { virtualDisplayController },
@@ -1662,12 +1700,40 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
             setPadding(dp(2), 0, dp(2), 0)
             stateListAnimator = null
-            if (repeatable) {
-                var repeatTask: Runnable? = null
-                var repeating = false
-                setOnTouchListener { _, event ->
-                    when (event.actionMasked) {
-                        MotionEvent.ACTION_DOWN -> {
+            val normalColor = if (utility) Color.rgb(82, 96, 116) else Color.rgb(225, 230, 237)
+            val pressedColor = Color.rgb(91, 178, 235)
+            val previewLabel = if (label == "SPACE") "spasi" else label
+            val previewText = TextView(this@VirtualDisplayTouchActivity).apply {
+                text = previewLabel
+                textSize = 25f
+                gravity = Gravity.CENTER
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.WHITE)
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(12).toFloat()
+                    setColor(Color.rgb(48, 64, 86))
+                    setStroke(dp(1), Color.rgb(112, 211, 255))
+                }
+                elevation = dp(14).toFloat()
+                setPadding(dp(12), dp(5), dp(12), dp(5))
+            }
+            val previewPopup = android.widget.PopupWindow(
+                previewText, dp(if (label == "SPACE") 86 else 58), dp(54), false
+            ).apply { isTouchable = false; isOutsideTouchable = false }
+            var repeatTask: Runnable? = null
+            var repeating = false
+            setOnTouchListener { keyView, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        keyView.scaleX = 1.08f
+                        keyView.scaleY = 1.08f
+                        (keyView.background as? GradientDrawable)?.setColor(pressedColor)
+                        if (keyView.isAttachedToWindow) {
+                            runCatching {
+                                previewPopup.showAsDropDown(keyView, (keyView.width - previewPopup.width) / 2, -keyView.height - dp(48))
+                            }
+                        }
+                        if (repeatable) {
                             repeating = true
                             action()
                             val task = object : Runnable {
@@ -1680,19 +1746,22 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                             }
                             repeatTask = task
                             keyboardRepeatHandler.postDelayed(task, 420L)
-                            true
                         }
-                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                            repeating = false
-                            repeatTask?.let(keyboardRepeatHandler::removeCallbacks)
-                            repeatTask = null
-                            true
-                        }
-                        else -> true
+                        true
                     }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        repeating = false
+                        repeatTask?.let(keyboardRepeatHandler::removeCallbacks)
+                        repeatTask = null
+                        runCatching { if (previewPopup.isShowing) previewPopup.dismiss() }
+                        keyView.scaleX = 1f
+                        keyView.scaleY = 1f
+                        (keyView.background as? GradientDrawable)?.setColor(normalColor)
+                        if (!repeatable && event.actionMasked == MotionEvent.ACTION_UP) action()
+                        true
+                    }
+                    else -> true
                 }
-            } else {
-                setOnClickListener { action() }
             }
         }
 
@@ -2209,6 +2278,19 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             val parent = preview?.parent as? View
             if ((virtualDisplayController?.displayId ?: -1) >= 0) startOwnedVirtualDisplay()
             if (parent != null) updateDesktopLayout(parent.width, parent.height)
+            assistantBallView?.post {
+                val ball = assistantBallView ?: return@post
+                val params = ball.layoutParams as? FrameLayout.LayoutParams ?: return@post
+                val maxX = (parent?.width ?: 0) - ball.width
+                val maxY = (parent?.height ?: 0) - ball.height
+                val xPercent = if (landscape) assistantBallLandscapeXPercent else assistantBallPortraitXPercent
+                val yPercent = if (landscape) assistantBallLandscapeYPercent else assistantBallPortraitYPercent
+                params.gravity = Gravity.TOP or Gravity.START
+                params.leftMargin = ((maxX.coerceAtLeast(0)) * xPercent / 100f).toInt()
+                params.topMargin = ((maxY.coerceAtLeast(0)) * yPercent / 100f).toInt()
+                ball.layoutParams = params
+                ball.bringToFront()
+            }
         }
     }
     private fun updateDesktopLayout(rootWidth: Int, rootHeight: Int) {
