@@ -871,29 +871,37 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     override fun moveRecentTaskToFront(displayId: Int, taskId: Int): String {
         val component = verifiedRecentTaskComponent(displayId, taskId)
             ?: return "Task #$taskId tidak terverifikasi pada virtual display $displayId."
-        val moveResult = runShizukuShell("am task move-to-front $taskId", timeoutMs = 5000L, maxCharacters = 700)
-        val moveSucceeded = moveResult.first == 0 &&
-            !moveResult.second.contains("Error", true) &&
-            !moveResult.second.contains("Exception", true) &&
-            !moveResult.second.contains("Unknown command", true)
-        if (moveSucceeded) {
-            lastError = "Task #$taskId diminta tampil di depan pada display $displayId."
-            return lastError
+        val packageName = component.substringBefore('/')
+        if (!Regex("""^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$""").matches(packageName)) {
+            return "Nama paket task tidak valid; pemulihan dibatalkan."
         }
-        if (!Regex("""^[A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+$""").matches(component)) {
-            lastError = "Tidak bisa membuka task #$taskId: komponen aplikasi tidak valid."
-            return lastError
+        return try {
+            // Focus the existing Android task; do not launch a second activity/task.
+            val managerClass = Class.forName("android.app.ActivityTaskManager")
+            val getService = managerClass.getDeclaredMethod("getService").apply {
+                isAccessible = true
+            }
+            val service = getService.invoke(null)
+            val applicationThreadClass = Class.forName("android.app.IApplicationThread")
+            val moveMethod = service.javaClass.getMethod(
+                "moveTaskToFront",
+                applicationThreadClass,
+                String::class.java,
+                Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType,
+                android.os.Bundle::class.java
+            )
+            moveMethod.invoke(service, null, "com.android.shell", taskId, 0, android.os.Bundle())
+            lastError = "Task $taskId ($packageName) dikembalikan ke depan pada display $displayId."
+            lastError
+        } catch (error: Throwable) {
+            val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error
+            lastError = "Gagal memulihkan task #" + taskId + " pada display " + displayId +
+                ": " + cause.javaClass.simpleName + ": " + (cause.message ?: "tanpa detail")
+            Log.w(TAG, lastError, cause)
+            lastError
         }
-        val launch = runShizukuShell("am start --display $displayId -n '$component'", timeoutMs = 8000L, maxCharacters = 1000)
-        val launchSucceeded = launch.first == 0 &&
-            !launch.second.contains("Error:", true) &&
-            !launch.second.contains("Exception", true) &&
-            !launch.second.contains("unable to resolve", true)
-        lastError = if (launchSucceeded) "Membuka $component pada virtual display $displayId."
-            else "Gagal membuka aplikasi pada display $displayId. move-to-front: ${moveResult.second}; start: ${launch.second}"
-        return lastError
     }
-
     override fun forceStopRecentTask(displayId: Int, taskId: Int): String {
         val component = verifiedRecentTaskComponent(displayId, taskId)
             ?: return "Task #$taskId tidak terverifikasi pada virtual display $displayId."
