@@ -1586,7 +1586,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             // This keeps Gboard's composing revisions out of the target app and avoids
             // rebuilding KeyEvents while losing the original character information.
             val normalized = text.replace("\r\n", "\n").replace('\r', '\n')
-            val chunks = normalized.split('\\n')
+            val chunks = normalized.split('\n')
             var accepted = true
             chunks.forEachIndexed { index, chunk ->
                 if (chunk.isNotEmpty()) {
