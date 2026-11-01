@@ -200,7 +200,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         applyImmersiveMode()
 
         // SurfaceView tetap memenuhi root; toolbar, kursor, touchpad, dan log adalah overlay.
-        val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(7, 24, 45)) }
+        val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(5, 10, 32)) }
         preview = SurfaceView(this).apply {
             contentDescription = "Desktop virtual display 960 x 820"
             setOnTouchListener { view, event ->
@@ -253,7 +253,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             background = roundedPanel(220, 12)
         }
         topBar.addView(TextView(this).apply {
-            text = "SAKU DESKTOP  •  960 × 820"
+            text = "CYBER DECK  •  VIRTUAL DISPLAY TOUCH"
             textSize = 12f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
@@ -448,15 +448,15 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         })
         var gamepadOverlay: VirtualMobaGamepadView? = null
         val assistantBall = TextView(this).apply {
-            text = "S"
-            textSize = 18f
+            text = "V"
+            textSize = 19f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.argb(225, 24, 104, 164))
-                setStroke(dp(2), Color.argb(220, 180, 230, 255))
+                setColors(intArrayOf(Color.rgb(0, 220, 255), Color.rgb(68, 54, 235), Color.rgb(148, 42, 255)), GradientDrawable.Orientation.TL_BR)
+                setStroke(dp(2), Color.rgb(116, 239, 255))
             }
             elevation = dp(12).toFloat()
             contentDescription = "Bola asisten Saku Desktop. Ketuk untuk pengaturan, seret untuk memindahkan."
@@ -827,7 +827,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             rightMargin = dp(5)
         })
         panelHeader.addView(TextView(this).apply {
-            text = "TRACKPAD • 1 jari kursor / tap klik / 2 jari scroll"
+            text = "CYBER TRACKPAD  •  1 jari gerak  /  2 jari scroll"
             textSize = 9f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
@@ -922,7 +922,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             LinearLayout.LayoutParams(0, dp(30), 1f))
         bottomPanel.addView(virtualNavRow)
         val stage = FrameLayout(this).apply {
-            setBackgroundColor(Color.rgb(19, 39, 56))
+            setBackgroundColor(Color.rgb(10, 25, 57))
             contentDescription = "Touchpad: gerak 1 jari, tap klik, 2 jari scroll, tahan 1 detik lalu geser untuk drag"
         }
         stage.setOnTouchListener { _, event -> handleTouch(event, stage.width, stage.height) }
@@ -1076,9 +1076,12 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     private fun roundedPanel(alpha: Int, radius: Int) = GradientDrawable().apply {
-        setColor(Color.argb(alpha.coerceIn(0, 255), 7, 25, 45))
+        setColors(intArrayOf(
+            Color.argb(alpha.coerceIn(0, 255), 12, 27, 68),
+            Color.argb(alpha.coerceIn(0, 255), 7, 13, 42)
+        ), GradientDrawable.Orientation.TL_BR)
         cornerRadius = dp(radius).toFloat()
-        setStroke(dp(1), Color.argb(105, 182, 225, 247))
+        setStroke(dp(1), Color.argb(145, 48, 190, 255))
     }
 
     private fun applyImmersiveMode() {
