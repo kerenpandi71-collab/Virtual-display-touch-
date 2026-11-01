@@ -2253,28 +2253,30 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             }
             panelParams?.let {
                 it.width = touchWidth
-                it.height = if (gamepadModeActive || keyboardMode) 0 else (rootHeight * touchpadLandscapeHeightPercent / 100).coerceIn(dp(130), rootHeight)
                 if (gamepadModeActive || keyboardMode) {
                     bottomPanel.visibility = View.GONE
+                    it.height = 0
                     it.gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
                     it.leftMargin = 0; it.rightMargin = 0; it.topMargin = 0; it.bottomMargin = 0
-                } else if (touchpadLandscapeHasCustomPosition)
-                it.height = (rootHeight * touchpadLandscapeHeightPercent / 100).coerceIn(dp(130), rootHeight)
-                if (touchpadLandscapeHasCustomPosition) {
-                    val maxX = (rootWidth - it.width).coerceAtLeast(0)
-                    val maxY = (rootHeight - it.height).coerceAtLeast(0)
-                    it.gravity = Gravity.TOP or Gravity.LEFT
-                    it.leftMargin = (maxX * touchpadLandscapeXPercent / 100f).toInt()
-                    it.topMargin = (maxY * touchpadLandscapeYPercent / 100f).toInt()
-                    it.rightMargin = 0; it.bottomMargin = 0
                 } else {
-                    it.gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
-                    it.leftMargin = sideGap; it.rightMargin = 0; it.topMargin = 0; it.bottomMargin = 0
+                    bottomPanel.visibility = View.VISIBLE
+                    it.height = (rootHeight * touchpadLandscapeHeightPercent / 100).coerceIn(dp(130), rootHeight)
+                    if (touchpadLandscapeHasCustomPosition) {
+                        val maxX = (rootWidth - it.width).coerceAtLeast(0)
+                        val maxY = (rootHeight - it.height).coerceAtLeast(0)
+                        it.gravity = Gravity.TOP or Gravity.LEFT
+                        it.leftMargin = (maxX * touchpadLandscapeXPercent / 100f).toInt()
+                        it.topMargin = (maxY * touchpadLandscapeYPercent / 100f).toInt()
+                        it.rightMargin = 0; it.bottomMargin = 0
+                    } else {
+                        it.gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
+                        it.leftMargin = sideGap; it.rightMargin = 0; it.topMargin = 0; it.bottomMargin = 0
+                    }
                 }
                 bottomPanel.layoutParams = it
             }
             keyboardParams?.let {
-                keyboardPanel.visibility = if (keyboardPanelVisible) View.VISIBLE else View.GONE
+                keyboardPanel.visibility = if (keyboardMode) View.VISIBLE else View.GONE
                 it.width = keyboardWidth
                 it.height = dp(keyboardLandscapeHeightDp).coerceAtMost(rootHeight)
                 if (keyboardMode) {
