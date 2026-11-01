@@ -1130,7 +1130,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         recentAppsPresentation?.dismiss()
         val presentation = Presentation(this, display)
         recentAppsPresentation = presentation
-        val ctx = presentation
+        val ctx = presentation.context
         val density = ctx.resources.displayMetrics.density
         fun d(v: Int) = (v * density).toInt().coerceAtLeast(1)
         data class Entry(val id: Int, val component: String, val pkg: String?)
@@ -1200,7 +1200,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 buttons.addView(Button(ctx).apply {
                     text = "Paksa berhenti"; textSize = 9f; isAllCaps = false
                     setOnClickListener {
-                        AlertDialog.Builder(presentation).setTitle("Paksa berhenti $name?")
+                        AlertDialog.Builder(ctx).setTitle("Paksa berhenti $name?")
                             .setMessage("Aplikasi akan dihentikan. Pekerjaan yang belum disimpan bisa hilang.")
                             .setNegativeButton("Batal", null)
                             .setPositiveButton("Paksa berhenti") { _, _ ->
@@ -1248,7 +1248,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         footer.addView(Button(ctx).apply {
             text = "Clear all"; isAllCaps = false
             setOnClickListener {
-                AlertDialog.Builder(presentation).setTitle("Clear Recent semua?")
+                AlertDialog.Builder(ctx).setTitle("Clear Recent semua?")
                     .setMessage("Kartu task pada virtual display akan dihapus. Aplikasi tidak dipaksa berhenti.")
                     .setNegativeButton("Batal", null)
                     .setPositiveButton("Clear all") { _, _ ->
