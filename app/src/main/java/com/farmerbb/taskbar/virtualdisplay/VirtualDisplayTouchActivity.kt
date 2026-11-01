@@ -1158,7 +1158,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             val component = match.groupValues.getOrNull(2).orEmpty()
             val packageName = component.substringBefore('/').takeIf { it.contains('.') }
             Triple(id, component, packageName)
-        }.distinctBy { it.first }
+        }.distinctBy { it.first }.toList()
 
         val scroll = ScrollView(this).apply {
             isFillViewport = true
