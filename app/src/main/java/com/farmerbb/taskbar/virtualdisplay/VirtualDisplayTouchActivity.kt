@@ -122,7 +122,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var keyboardLandscapeHeightDp = 240
     private var panelPositionPercent = 0
     private var directTouchDown = false
-    private var directTouchEnabled = true
+    // 0 = trackpad on preview, 1 = direct touch, 2 = disabled
+    private var previewInputMode = 1
     private val gestureHandler = Handler(Looper.getMainLooper())
     private var longPressTask: Runnable? = null
     private var touchpadFingerDown = false
@@ -225,8 +226,11 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         preview = SurfaceView(this).apply {
             contentDescription = "Desktop virtual display 960 x 820"
             setOnTouchListener { view, event ->
-                if (!directTouchEnabled) return@setOnTouchListener false
-                handleDirectTouch(event, view.width, view.height)
+                when (previewInputMode) {
+                    0 -> handleTouch(event, view.width, view.height)
+                    1 -> handleDirectTouch(event, view.width, view.height)
+                    else -> false
+                }
             }
             holder.setFixedSize(targetWidth, targetHeight)
             holder.addCallback(object : SurfaceHolder.Callback {
@@ -871,11 +875,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             typeface = Typeface.DEFAULT_BOLD
             maxLines = 1
         }, LinearLayout.LayoutParams(0, dp(28), 1f))
-        panelHeader.addView(actionButton("🖱 Kursor") {
-            directTouchEnabled = false
-            directTouchButton.text = "Touch: OFF"
-            bottomPanel.visibility = View.VISIBLE
-            status.text = "Mode trackpad aktif."
+        panelHeader.addView(actionButton("🖱 Preview") {
+            setPreviewInputMode(0)
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(28)))
         panelHeader.addView(actionButton("⌨") {
             keyboardPanelVisible = !keyboardPanelVisible
@@ -1388,19 +1389,33 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     private fun toggleDirectTouch() {
-        directTouchEnabled = !directTouchEnabled
-        directTouchButton.text = if (directTouchEnabled) "Touch: ON" else "Touch: OFF"
-        preview?.isClickable = directTouchEnabled
-        status.text = if (directTouchEnabled) {
-            bottomPanel.visibility = View.GONE
-            panelToggleButton.text = "Panel+"
-            "Direct Touch aktif • sentuh dan geser desktop seperti layar sentuh."
-        } else {
-            bottomPanel.visibility = View.VISIBLE
-            panelToggleButton.text = "Panel"
-            updateDesktopLayout((preview?.parent as? View)?.width ?: 0, (preview?.parent as? View)?.height ?: 0)
-            "Touchpad aktif • 1 jari kursor, tap layar, 2 jari scroll."
+        setPreviewInputMode((previewInputMode + 1) % 3)
+    }
+
+    private fun setPreviewInputMode(mode: Int) {
+        previewInputMode = mode.coerceIn(0, 2)
+        directTouchButton.text = when (previewInputMode) {
+            0 -> "Trackpad"
+            1 -> "Direct"
+            else -> "Touch: OFF"
         }
+        preview?.isClickable = previewInputMode != 2
+        when (previewInputMode) {
+            0 -> {
+                bottomPanel.visibility = View.GONE
+                panelToggleButton.text = "Panel+"
+                status.text = "Trackpad preview aktif • 1 jari kursor/tap, 2 jari scroll, tahan lalu geser untuk drag."
+            }
+            1 -> {
+                bottomPanel.visibility = View.GONE
+                panelToggleButton.text = "Panel+"
+                status.text = "Direct Touch aktif • sentuhan diteruskan langsung ke desktop virtual."
+            }
+            else -> {
+                status.text = "Input preview nonaktif • sentuhan pada preview diabaikan."
+            }
+        }
+        updateDesktopLayout((preview?.parent as? View)?.width ?: 0, (preview?.parent as? View)?.height ?: 0)
     }
 
     private fun handleDirectTouch(event: MotionEvent, width: Int, height: Int): Boolean {
