@@ -442,6 +442,10 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         resolutionRow.addView(actionButton("Terapkan") { applyDisplaySettings() },
             LinearLayout.LayoutParams(0, dp(32), 1f))
         topBar.addView(resolutionRow)
+        val controlRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
         sensitivityValue = TextView(this).apply { text = "Kursor 45%"; textSize = 9f; setTextColor(Color.WHITE) }
         controlRow.addView(sensitivityValue, LinearLayout.LayoutParams(dp(76), dp(25)))
         val sensitivitySeekBar = SeekBar(this).apply {
@@ -457,7 +461,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             })
         }
         controlRow.addView(sensitivitySeekBar, LinearLayout.LayoutParams(0, dp(25), 1f))
-        topBar.addView(controlRow)
         topBar.addView(controlRow)
         status = TextView(this).apply {
             text = "Hubungkan Shizuku, lalu tekan Mulai."
