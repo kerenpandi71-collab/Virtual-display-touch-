@@ -21,20 +21,20 @@ class DexLauncherActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setBackgroundDrawableResource(android.R.color.transparent)
-        val root = LinearLayout(this).apply {
+        val root = LinearLayout(this@DexLauncherActivity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(18), dp(24), dp(12))
             background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
                 intArrayOf(Color.rgb(7, 18, 40), Color.rgb(17, 43, 76), Color.rgb(32, 35, 78)))
         }
-        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        header.addView(TextView(this).apply {
+        val header = LinearLayout(this@DexLauncherActivity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        header.addView(TextView(this@DexLauncherActivity).apply {
             text = "Saku Desktop"
             textSize = 26f
             setTextColor(ink)
             typeface = android.graphics.Typeface.create("sans-serif-medium", 0)
         }, LinearLayout.LayoutParams(0, dp(48), 1f))
-        header.addView(TextView(this).apply {
+        header.addView(TextView(this@DexLauncherActivity).apply {
             text = "VIRTUAL DESKTOP  •  " + (display?.displayId ?: 0)
             textSize = 11f
             setTextColor(muted)
@@ -43,10 +43,10 @@ class DexLauncherActivity : ComponentActivity() {
             setPadding(dp(14), dp(8), dp(14), dp(8))
         })
         root.addView(header)
-        root.addView(TextView(this).apply {
+        root.addView(TextView(this@DexLauncherActivity).apply {
             text = "Aplikasi"; textSize = 16f; setTextColor(ink); setPadding(0, dp(12), 0, dp(8))
         })
-        val search = android.widget.EditText(this).apply {
+        val search = android.widget.EditText(this@DexLauncherActivity).apply {
             hint = "Cari aplikasi..."
             setSingleLine(true)
             textSize = 14f
@@ -61,8 +61,8 @@ class DexLauncherActivity : ComponentActivity() {
             bottomMargin = dp(8)
         })
 
-        val scroll = ScrollView(this)
-        val grid = GridLayout(this).apply {
+        val scroll = ScrollView(this@DexLauncherActivity)
+        val grid = GridLayout(this@DexLauncherActivity).apply {
             columnCount = when {
                 resources.displayMetrics.widthPixels / resources.displayMetrics.density >= 1100 -> 8
                 resources.displayMetrics.widthPixels / resources.displayMetrics.density >= 760 -> 6
@@ -71,11 +71,11 @@ class DexLauncherActivity : ComponentActivity() {
             useDefaultMargins = true
             alignmentMode = GridLayout.ALIGN_BOUNDS
         }
-        val pm = this.packageManager
+        val pm = this@DexLauncherActivity.packageManager
         val launcherIntent = android.content.Intent(android.content.Intent.ACTION_MAIN)
             .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
         val apps = pm.queryIntentActivities(launcherIntent, 0)
-            .filter { it.activityInfo.packageName != this.packageName }
+            .filter { it.activityInfo.packageName != this@DexLauncherActivity.packageName }
             .sortedBy { it.loadLabel(pm).toString().lowercase() }
         fun renderApps(query: String) {
             grid.removeAllViews()
@@ -92,7 +92,7 @@ class DexLauncherActivity : ComponentActivity() {
                 })
             }
             if (filtered.isEmpty()) {
-                grid.addView(TextView(this).apply {
+                grid.addView(TextView(this@DexLauncherActivity).apply {
                     text = "Aplikasi tidak ditemukan"
                     textSize = 14f
                     setTextColor(muted)
@@ -116,22 +116,22 @@ class DexLauncherActivity : ComponentActivity() {
         })
         scroll.addView(grid)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        val taskbar = LinearLayout(this).apply {
+        val taskbar = LinearLayout(this@DexLauncherActivity).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             background = rounded(Color.argb(225, 13, 23, 42), 24)
             setPadding(dp(12), dp(5), dp(12), dp(5))
         }
-        taskbar.addView(TextView(this).apply {
+        taskbar.addView(TextView(this@DexLauncherActivity).apply {
             text = "S"; textSize = 18f; typeface = android.graphics.Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE); gravity = Gravity.CENTER
             background = rounded(Color.rgb(54, 105, 222), 16)
             setOnClickListener { scroll.smoothScrollTo(0, 0) }
         }, LinearLayout.LayoutParams(dp(42), dp(38)))
-        taskbar.addView(TextView(this).apply {
+        taskbar.addView(TextView(this@DexLauncherActivity).apply {
             text = "  Beranda     •     Ketuk aplikasi untuk membuka"
             textSize = 12f; setTextColor(muted)
         }, LinearLayout.LayoutParams(0, dp(38), 1f))
-        taskbar.addView(TextView(this).apply {
+        taskbar.addView(TextView(this@DexLauncherActivity).apply {
             text = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
             textSize = 13f; setTextColor(ink); gravity = Gravity.CENTER
             setPadding(dp(12), 0, dp(8), 0)
@@ -141,15 +141,15 @@ class DexLauncherActivity : ComponentActivity() {
     }
 
     private fun appTile(info: ResolveInfo, pm: android.content.pm.PackageManager): View {
-        val tile = LinearLayout(this).apply {
+        val tile = LinearLayout(this@DexLauncherActivity).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
             background = rounded(Color.argb(75, 220, 235, 255), 16)
             isClickable = true; isFocusable = true; setPadding(dp(5), dp(7), dp(5), dp(6))
         }
-        tile.addView(android.widget.ImageView(this).apply {
+        tile.addView(android.widget.ImageView(this@DexLauncherActivity).apply {
             setImageDrawable(info.loadIcon(pm)); scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
         }, LinearLayout.LayoutParams(dp(44), dp(44)))
-        tile.addView(TextView(this).apply {
+        tile.addView(TextView(this@DexLauncherActivity).apply {
             text = info.loadLabel(pm).toString(); textSize = 11f; setTextColor(ink)
             gravity = Gravity.CENTER; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
         }, LinearLayout.LayoutParams(-1, dp(34)))
