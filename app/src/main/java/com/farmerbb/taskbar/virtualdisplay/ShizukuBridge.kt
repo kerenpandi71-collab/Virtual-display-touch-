@@ -327,6 +327,16 @@ class ShizukuBridge(
         }
     }
 
+    fun launchAppOnDisplay(displayId: Int, component: String): String {
+        return try {
+            val service = remote ?: return "Shizuku UserService belum terhubung."
+            service.launchAppOnDisplay(displayId, component).also { onStatus(it) }
+        } catch (error: Throwable) {
+            Log.e(TAG, "launchAppOnDisplay failed", error)
+            "Tidak bisa membuka aplikasi: ${error.cause?.message ?: error.message}"
+        }
+    }
+
     fun getLastError(): String = try {
         remote?.getLastError() ?: "Shizuku UserService belum terhubung."
     } catch (error: Throwable) {
