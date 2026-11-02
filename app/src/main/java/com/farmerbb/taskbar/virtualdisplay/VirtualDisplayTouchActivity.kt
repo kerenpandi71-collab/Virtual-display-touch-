@@ -1091,19 +1091,26 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
                 val base = super.onCreateInputConnection(outAttrs) ?: return null
                 return object : InputConnectionWrapper(base, false) {
-                    // Keep Gboard composition local to this proxy. Sending each composing
-                    // revision as KeyEvents caused dropped/duplicated text on secondary displays.
-                    // Only commitText is forwarded, once the IME has finalized the characters.
+                    // Keep intermediate Gboard composition on the host proxy. Some IMEs
+                    // finalize a word with finishComposingText rather than commitText, so
+                    // retain the latest composing value and flush it exactly once.
+                    private var pendingComposition = ""
+
                     override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                        pendingComposition = text?.toString().orEmpty()
                         return super.setComposingText(text, newCursorPosition)
                     }
 
                     override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
-                        text?.toString()?.takeIf { it.isNotEmpty() }?.let(::sendImeBridgeText)
+                        val committed = text?.toString().orEmpty()
+                        if (committed.isNotEmpty()) sendImeBridgeText(committed)
+                        pendingComposition = ""
                         return super.commitText(text, newCursorPosition)
                     }
 
                     override fun finishComposingText(): Boolean {
+                        pendingComposition.takeIf { it.isNotEmpty() }?.let(::sendImeBridgeText)
+                        pendingComposition = ""
                         return super.finishComposingText()
                     }
 
@@ -1681,30 +1688,32 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val displayId = virtualDisplayController?.displayId ?: -1
         if (displayId < 0 || text.isEmpty()) return
         keyboardInputExecutor.execute {
-            // Forward committed text through Android's display-targeted input command.
-            // This keeps Gboard's composing revisions out of the target app and avoids
-            // rebuilding KeyEvents while losing the original character information.
+            // The shell text command handles ordinary Latin text. It cannot reliably
+            // represent every committed Unicode character, so use clipboard paste for
+            // non-ASCII input and as a fallback if the display-targeted command fails.
             val normalized = text.replace("\r\n", "\n").replace('\r', '\n')
-            val chunks = normalized.split('\n')
-            var accepted = true
-            chunks.forEachIndexed { index, chunk ->
-                if (chunk.isNotEmpty()) {
-                    val encoded = chunk.replace("%", "%25").replace(" ", "%s")
-                    val sent = shizukuBridge.runShellCommand(
-                        "input -d $displayId text ${shellQuote(encoded)}"
-                    )
-                    if (!sent) accepted = false
-                }
-                if (index < chunks.lastIndex) {
-                    if (!shizukuBridge.runShellCommand("input -d $displayId keyevent 66")) {
-                        accepted = false
+            val requiresClipboard = normalized.any { it.code !in 0x20..0x7E }
+            var accepted = !requiresClipboard
+            if (!requiresClipboard) {
+                val chunks = normalized.split('\n')
+                accepted = true
+                chunks.forEachIndexed { index, chunk ->
+                    if (chunk.isNotEmpty()) {
+                        val encoded = chunk.replace("%", "%25").replace(" ", "%s")
+                        val sent = shizukuBridge.runShellCommand(
+                            "input -d $displayId text ${shellQuote(encoded)}"
+                        )
+                        if (!sent) accepted = false
+                    }
+                    if (index < chunks.lastIndex) {
+                        if (!shizukuBridge.runShellCommand("input -d $displayId keyevent 66")) {
+                            accepted = false
+                        }
                     }
                 }
             }
 
-            // Paste is a compatibility fallback for characters the platform input command
-            // cannot encode (for example some emoji and complex scripts).
-            if (!accepted) {
+            if (!accepted || requiresClipboard) {
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 accepted = runCatching {
                     clipboard.setPrimaryClip(ClipData.newPlainText("Saku keyboard", text))
