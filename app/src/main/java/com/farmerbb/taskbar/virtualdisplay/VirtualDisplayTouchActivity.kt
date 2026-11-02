@@ -1336,26 +1336,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             return
         }
 
-        // HOME and APP_SWITCH are system-policy keys. Route them through the
-        // display-targeted shell input command so they affect the virtual display,
-        // never the phone's built-in display.
-        if (keyCode == android.view.KeyEvent.KEYCODE_HOME ||
-            keyCode == android.view.KeyEvent.KEYCODE_APP_SWITCH) {
-            keyboardInputExecutor.execute {
-                val accepted = shizukuBridge.runShellCommand("input -d $displayId keyevent $keyCode")
-                runOnUiThread {
-                    if (!accepted) {
-                        status.text = "Recent gagal dikirim ke display virtual."
-                        appendRuntimeLog("Recent display $displayId gagal: ${shizukuBridge.getLastError()}")
-                    } else {
-                        status.text = "Perintah Recent dikirim ke display virtual $displayId."
-                    }
-                }
-            }
-            return
-        }
-
-        // Back continues through the existing Shizuku virtual-display injection path.
+        // Inject navigation keys through InputManager with the virtual display ID.
+        // The shell input allowlist intentionally excludes HOME (keyCode 3), so
+        // routing HOME through runShellCommand silently rejects it.
         sendVirtualKey(keyCode)
     }
 
