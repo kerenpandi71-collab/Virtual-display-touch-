@@ -23,6 +23,9 @@
             android:excludeFromRecents="true"
             android:launchMode="singleTop"
             android:screenOrientation="unspecified" />
+        <service
+            android:name="com.farmerbb.taskbar.virtualdisplay.NativeTrackpadService"
+            android:exported="false" />
         <activity
             android:name="com.farmerbb.taskbar.virtualdisplay.VirtualDisplayTouchActivity"
             android:configChanges="orientation|screenSize|keyboardHidden"
