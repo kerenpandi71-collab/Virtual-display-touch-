@@ -904,7 +904,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             if (!component.matches(Regex("""[A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+"""))) {
                 return "Komponen aplikasi tidak valid."
             }
-            val command = "am start --display $displayId -n $component"
+            val command = "am start --display $displayId --windowingMode 1 -n $component"
             val result = runShizukuShell(command, timeoutMs = 8000L, maxCharacters = 700)
             val output = result.second
             val success = result.first == 0 && !output.contains("Error:", true) &&
