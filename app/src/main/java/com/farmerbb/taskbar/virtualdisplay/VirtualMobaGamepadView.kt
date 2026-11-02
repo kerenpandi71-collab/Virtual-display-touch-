@@ -234,18 +234,11 @@ internal class VirtualMobaGamepadView(
                     // MotionEvent may batch intermediate coordinates. Replay its history so
                     // circular joystick movement and quick Skill 2 drags do not jump over samples.
                     for (historyIndex in 0 until event.historySize) {
-                        val sample = Array(event.pointerCount) { pointerIndex ->
-                            event.getHistoricalX(pointerIndex, historyIndex) to
-                                event.getHistoricalY(pointerIndex, historyIndex)
-                        }
-                        updateActivePointerPositions(event, sample)
-                        inject(event, sample)
+                        updateActivePointerPositions(event, historyIndex)
+                        inject(event, historyIndex)
                     }
-                    val current = Array(event.pointerCount) { pointerIndex ->
-                        event.getX(pointerIndex) to event.getY(pointerIndex)
-                    }
-                    updateActivePointerPositions(event, current)
-                    inject(event, current)
+                    updateActivePointerPositions(event, null)
+                    inject(event)
                 }
             }
             MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP -> {
@@ -272,15 +265,12 @@ internal class VirtualMobaGamepadView(
         return true
     }
 
-    private fun updateActivePointerPositions(
-        event: MotionEvent,
-        positions: Array<Pair<Float, Float>>
-    ) {
+    private fun updateActivePointerPositions(event: MotionEvent, historyIndex: Int?) {
         for (i in 0 until event.pointerCount) {
             val id = event.getPointerId(i)
             val control = active[id] ?: continue
-            val x = positions[i].first
-            val y = positions[i].second
+            val x = if (historyIndex == null) event.getX(i) else event.getHistoricalX(i, historyIndex)
+            val y = if (historyIndex == null) event.getY(i) else event.getHistoricalY(i, historyIndex)
             if (control.id == "stick") activePositions[id] = x to y
             if (control.id == "skill2") {
                 val size = targetSize()
@@ -298,10 +288,7 @@ internal class VirtualMobaGamepadView(
         }
     }
 
-    private fun inject(
-        event: MotionEvent,
-        positions: Array<Pair<Float, Float>>? = null
-    ) {
+    private fun inject(event: MotionEvent, historyIndex: Int? = null) {
         val display = controller() ?: return
         val (targetW, targetH) = targetSize()
         if (targetW <= 0 || targetH <= 0) return
@@ -311,8 +298,8 @@ internal class VirtualMobaGamepadView(
         for (i in 0 until event.pointerCount) {
             val id = event.getPointerId(i)
             val control = active[id]
-            val sourceX = positions?.getOrNull(i)?.first ?: event.getX(i)
-            val sourceY = positions?.getOrNull(i)?.second ?: event.getY(i)
+            val sourceX = if (historyIndex == null) event.getX(i) else event.getHistoricalX(i, historyIndex)
+            val sourceY = if (historyIndex == null) event.getY(i) else event.getHistoricalY(i, historyIndex)
             var tx: Float
             var ty: Float
             if (control?.id == "stick") {
