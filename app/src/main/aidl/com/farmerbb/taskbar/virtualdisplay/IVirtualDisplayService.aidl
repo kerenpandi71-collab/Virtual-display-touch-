@@ -22,4 +22,5 @@ interface IVirtualDisplayService {
     String getOpenTasks(int displayId) = 19;
     String focusOpenTask(int displayId, int taskId) = 20;
     String closeOpenTask(int displayId, int taskId) = 22;
+    String launchAppOnDisplay(int displayId, String component) = 23;
 }
