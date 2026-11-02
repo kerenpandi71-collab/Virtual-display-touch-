@@ -93,6 +93,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var imeBridgeEditText: EditText
     private var keyboardPanelVisible = false
     private var gamepadModeActive = false
+    private var physicalScreenDimmed = false
     private var assistantBallView: TextView? = null
     private var assistantBallPortraitXPercent = 95
     private var assistantBallPortraitYPercent = 50
@@ -334,6 +335,21 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         directTouchButton = actionButton("Touch: ON") { toggleDirectTouch() }
         actions.addView(directTouchButton, LinearLayout.LayoutParams(0, dp(34), 0.78f))
         topBar.addView(actions)
+        val displayPowerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        displayPowerRow.addView(
+            actionButton("Redupkan layar HP") { togglePhysicalScreenDim() },
+            LinearLayout.LayoutParams(0, dp(32), 1f)
+        )
+        displayPowerRow.addView(TextView(this).apply {
+            text = "Virtual Display tetap aktif"
+            textSize = 9f
+            setTextColor(Color.LTGRAY)
+            gravity = Gravity.CENTER_VERTICAL
+        }, LinearLayout.LayoutParams(0, dp(32), 1f))
+        topBar.addView(displayPowerRow)
         val previewSizeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         previewSizeValue = TextView(this).apply { text = "Desktop ${previewSizePercent}%"; textSize = 9f; setTextColor(Color.WHITE) }
         previewSizeRow.addView(previewSizeValue, LinearLayout.LayoutParams(dp(84), dp(26)))
@@ -1144,6 +1160,27 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         setStroke(dp(1), Color.argb(145, 48, 190, 255))
     }
 
+    private fun togglePhysicalScreenDim() {
+        physicalScreenDimmed = !physicalScreenDimmed
+        val params = window.attributes
+        params.screenBrightness = if (physicalScreenDimmed) 0.02f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        window.attributes = params
+        status.text = if (physicalScreenDimmed) {
+            "Layar HP diredupkan • Virtual Display tetap berjalan"
+        } else {
+            "Kecerahan layar HP kembali mengikuti pengaturan sistem"
+        }
+        appendRuntimeLog(status.text.toString())
+    }
+
+    private fun restorePhysicalScreenBrightness() {
+        if (!physicalScreenDimmed) return
+        physicalScreenDimmed = false
+        val params = window.attributes
+        params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        window.attributes = params
+    }
+
     private fun applyImmersiveMode() {
         @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility = (
@@ -1887,6 +1924,11 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onStop() {
+        restorePhysicalScreenBrightness()
+        super.onStop()
     }
 
     override fun onDestroy() {
