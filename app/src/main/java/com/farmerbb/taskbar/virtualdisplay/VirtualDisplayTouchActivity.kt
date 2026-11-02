@@ -287,9 +287,16 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             text = label
             textSize = 9f
             isAllCaps = false
+            setTextColor(Color.rgb(225, 249, 255))
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
             minHeight = dp(32); minimumHeight = dp(32)
             minWidth = 0; minimumWidth = 0
-            setPadding(dp(2), 0, dp(2), 0)
+            setPadding(dp(3), 0, dp(3), 0)
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(13, 42, 73))
+                cornerRadius = dp(7).toFloat()
+                setStroke(dp(1), Color.rgb(0, 190, 235))
+            }
             setOnClickListener { action() }
         }
 
@@ -299,7 +306,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             background = roundedPanel(220, 12)
         }
         topBar.addView(TextView(this).apply {
-            text = "CYBER DECK  •  VIRTUAL DISPLAY TOUCH"
+            text = "CYBER DECK  //  VIRTUAL DISPLAY CONTROL"
             textSize = 12f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
@@ -389,16 +396,17 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         previewSizeRow.addView(previewSizeSeekBar, LinearLayout.LayoutParams(0, dp(28), 1f))
         topBar.addView(previewSizeRow)
         val panelPositionRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        panelPositionValue = TextView(this).apply { text = "Panel 0%"; textSize = 9f; setTextColor(Color.WHITE) }
+        panelPositionValue = TextView(this).apply { text = "Tinggi layar 100%"; textSize = 9f; setTextColor(Color.WHITE) }
         panelPositionRow.addView(panelPositionValue, LinearLayout.LayoutParams(dp(84), dp(26)))
         panelPositionSeekBar = SeekBar(this).apply {
             max = 100
-            progress = 0
-            contentDescription = "Posisi panel touchpad"
+            progress = 100
+            panelPositionPercent = 100
+            contentDescription = "Tinggi layar virtual 0 sampai 100 persen"
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     panelPositionPercent = progress
-                    panelPositionValue.text = "Panel ${panelPositionPercent}%"
+                    panelPositionValue.text = "Tinggi layar ${panelPositionPercent}%"
                     updateDesktopLayout(root.width, root.height)
                 }
                 override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
@@ -434,34 +442,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         resolutionRow.addView(actionButton("Terapkan") { applyDisplaySettings() },
             LinearLayout.LayoutParams(0, dp(32), 1f))
         topBar.addView(resolutionRow)
-        val controlRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        touchpadSizeValue = TextView(this).apply {
-            val portraitNow = resources.configuration.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE
-            text = if (portraitNow) "Tinggi TP P ${touchpadPortraitHeightPercent}%" else "Tinggi TP L ${touchpadLandscapeHeightPercent}%"
-            textSize = 9f; setTextColor(Color.WHITE)
-        }
-        controlRow.addView(touchpadSizeValue, LinearLayout.LayoutParams(dp(92), dp(25)))
-        touchpadSizeSeekBar = SeekBar(this).apply {
-            max = 60; progress = if (resources.configuration.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE) touchpadPortraitHeightPercent - 15 else touchpadLandscapeHeightPercent - 40
-            contentDescription = "Tinggi touchpad portrait atau landscape"
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    val portraitNow = resources.configuration.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE
-                    if (portraitNow) {
-                        touchpadPortraitHeightPercent = 15 + progress
-                        touchpadSizeValue.text = "Tinggi TP P ${touchpadPortraitHeightPercent}%"
-                    } else {
-                        touchpadLandscapeHeightPercent = 40 + progress
-                        touchpadSizeValue.text = "Tinggi TP L ${touchpadLandscapeHeightPercent}%"
-                    }
-                    persistTouchpadSettings()
-                    updateDesktopLayout(root.width, root.height)
-                }
-                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
-                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
-            })
-        }
-        controlRow.addView(touchpadSizeSeekBar, LinearLayout.LayoutParams(0, dp(25), 1f))
         sensitivityValue = TextView(this).apply { text = "Kursor 45%"; textSize = 9f; setTextColor(Color.WHITE) }
         controlRow.addView(sensitivityValue, LinearLayout.LayoutParams(dp(76), dp(25)))
         val sensitivitySeekBar = SeekBar(this).apply {
@@ -478,35 +458,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         controlRow.addView(sensitivitySeekBar, LinearLayout.LayoutParams(0, dp(25), 1f))
         topBar.addView(controlRow)
-        val touchpadWidthRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        touchpadWidthValue = TextView(this).apply {
-            val portraitNow = resources.configuration.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE
-            text = if (portraitNow) "Lebar TP P ${touchpadPortraitWidthPercent}%" else "Lebar TP L ${touchpadWidthPercent}%"
-            textSize = 9f; setTextColor(Color.WHITE)
-        }
-        touchpadWidthRow.addView(touchpadWidthValue, LinearLayout.LayoutParams(dp(92), dp(25)))
-        val touchpadWidthSeekBar = SeekBar(this).apply {
-            max = 40; progress = if (resources.configuration.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE) touchpadPortraitWidthPercent - 60 else touchpadWidthPercent - 18
-            contentDescription = "Lebar touchpad portrait atau landscape"
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    val portraitNow = resources.configuration.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE
-                    if (portraitNow) {
-                        touchpadPortraitWidthPercent = 60 + progress
-                        touchpadWidthValue.text = "Lebar TP P ${touchpadPortraitWidthPercent}%"
-                    } else {
-                        touchpadWidthPercent = (18 + progress).coerceAtMost(45)
-                        touchpadWidthValue.text = "Lebar TP L ${touchpadWidthPercent}%"
-                    }
-                    persistTouchpadSettings()
-                    updateDesktopLayout(root.width, root.height)
-                }
-                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
-                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
-            })
-        }
-        touchpadWidthRow.addView(touchpadWidthSeekBar, LinearLayout.LayoutParams(0, dp(25), 1f))
-        topBar.addView(touchpadWidthRow)
+        topBar.addView(controlRow)
         status = TextView(this).apply {
             text = "Hubungkan Shizuku, lalu tekan Mulai."
             textSize = 9f
@@ -587,10 +539,10 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 MotionEvent.ACTION_UP -> {
                     if (!ballDragged) {
                         val menu = android.widget.PopupMenu(this, view)
-                        menu.menu.add(0, 1, 0, "Pengaturan Saku Desktop")
+                        menu.menu.add(0, 1, 0, "Pengaturan Cyber Deck")
                         menu.menu.add(0, 2, 1, if (systemKeyboardRequested) "Sembunyikan Keyboard Android" else "Keyboard Android")
-                        menu.menu.add(0, 3, 2, "Keyboard Cyberdeck")
-                        menu.menu.add(0, 4, 3, if (keyboardPanelVisible) "Sembunyikan keyboard Cyberdeck" else "Tampilkan keyboard Cyberdeck")
+                        menu.menu.add(0, 3, 2, "Keyboard Custom")
+                        menu.menu.add(0, 4, 3, if (keyboardPanelVisible) "Sembunyikan Keyboard Custom" else "Tampilkan Keyboard Custom")
                         val launcherPrefs = getSharedPreferences("saku_desktop_launcher", Context.MODE_PRIVATE)
                         val launcherEnabled = launcherPrefs.getBoolean("enabled", true)
                         menu.menu.add(0, 5, 4, "Buka Saku Desktop Launcher").isEnabled = launcherEnabled
@@ -1336,9 +1288,17 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             return
         }
 
-        // Inject navigation keys through InputManager with the virtual display ID.
-        // The shell input allowlist intentionally excludes HOME (keyCode 3), so
-        // routing HOME through runShellCommand silently rejects it.
+        // When the built-in launcher is enabled, Home means return to its app
+        // grid rather than sending the system HOME key (which may be ignored by
+        // secondary-display policy on some Android builds).
+        if (keyCode == android.view.KeyEvent.KEYCODE_HOME &&
+            getSharedPreferences("saku_desktop_launcher", Context.MODE_PRIVATE)
+                .getBoolean("enabled", true)) {
+            showDexLauncherOnVirtualDisplay()
+            return
+        }
+        // Back and system Home (when the built-in launcher is disabled) use
+        // InputManager injection with the virtual display ID.
         sendVirtualKey(keyCode)
     }
 
@@ -2307,7 +2267,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             // Landscape desktop uses the full available screen. Keep the virtual
             // display aspect ratio and center it; input overlays float above it.
             val desktopWidth = rootWidth
-            val desktopHeight = minOf(rootHeight, (desktopWidth / aspect).toInt().coerceAtLeast(1))
+            val requestedHeight = (rootHeight * panelPositionPercent / 100).coerceAtLeast(1)
+            val desktopHeight = minOf(requestedHeight, (desktopWidth / aspect).toInt().coerceAtLeast(1))
             val fittedWidth = minOf(desktopWidth, (desktopHeight * aspect).toInt().coerceAtLeast(1))
             previewParams?.let {
                 it.width = fittedWidth
@@ -2362,7 +2323,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             // full-height preview behavior. Width remains controlled by its slider.
             val desktopWidth = (rootWidth * previewSizePercent / 100)
                 .coerceIn(dp(180).coerceAtMost(rootWidth), rootWidth)
-            val desktopHeight = rootHeight
+            val desktopHeight = (rootHeight * panelPositionPercent / 100)
+                .coerceIn(dp(180).coerceAtMost(rootHeight), rootHeight)
             previewParams?.let {
                 it.width = desktopWidth
                 it.height = desktopHeight
