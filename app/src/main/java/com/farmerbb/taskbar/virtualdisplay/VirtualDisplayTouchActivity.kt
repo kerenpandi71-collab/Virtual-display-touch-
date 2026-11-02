@@ -772,8 +772,13 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         "INS" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_INSERT)
                         "DEL" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_FORWARD_DEL)
                         else -> {
-                            sendTypedText(if (cyberShift && label.length == 1 && label[0].isLetter()) label.uppercase() else label)
-                            if (cyberShift && label.any { it.isLetter() }) { cyberShift = false; updateModifierLabels() }
+                            val functionNumber = if (label.startsWith("F")) label.drop(1).toIntOrNull() else null
+                            if (functionNumber != null && functionNumber in 1..12) {
+                                sendKeyboardKey(android.view.KeyEvent.KEYCODE_F1 + functionNumber - 1)
+                            } else {
+                                sendTypedText(if (cyberShift && label.length == 1 && label[0].isLetter()) label.uppercase() else label)
+                                if (cyberShift && label.any { it.isLetter() }) { cyberShift = false; updateModifierLabels() }
+                            }
                         }
                     }
                 }
