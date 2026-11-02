@@ -125,7 +125,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var cyberCtrl = false
     private var cyberAlt = false
     private var cyberSymbols = false
-    private var keyboardLayoutMode = 0
     private val keyboardRepeatHandler = Handler(Looper.getMainLooper())
     private lateinit var panelToggleButton: Button
     private lateinit var directTouchButton: Button
@@ -199,7 +198,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         previewSizePercent = if (landscapeAtLaunch) previewSizeLandscapePercent else previewSizePortraitPercent
         val keyboardPrefs = getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE)
         keyboardWidthPercent = keyboardPrefs.getInt("width_percent", 100).coerceIn(55, 100)
-        keyboardLayoutMode = keyboardPrefs.getInt("layout_mode", 0).coerceIn(0, 2)
         keyboardHeightDp = keyboardPrefs.getInt("height_dp", 240).coerceIn(170, 360)
         keyboardLandscapeWidthPercent = keyboardPrefs.getInt("landscape_width_percent", 100).coerceIn(55, 100)
         keyboardLandscapeHeightDp = keyboardPrefs.getInt("landscape_height_dp", 240).coerceIn(170, 360)
