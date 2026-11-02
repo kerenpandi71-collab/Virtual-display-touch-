@@ -94,6 +94,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var keyboardPanelVisible = false
     private var gamepadModeActive = false
     private var physicalScreenDimmed = false
+    private lateinit var physicalScreenDimButton: Button
     private var assistantBallView: TextView? = null
     private var assistantBallPortraitXPercent = 95
     private var assistantBallPortraitYPercent = 50
@@ -339,8 +340,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
+        physicalScreenDimButton = actionButton("Redupkan layar HP") { togglePhysicalScreenDim() }
         displayPowerRow.addView(
-            actionButton("Redupkan layar HP") { togglePhysicalScreenDim() },
+            physicalScreenDimButton,
             LinearLayout.LayoutParams(0, dp(32), 1f)
         )
         displayPowerRow.addView(TextView(this).apply {
@@ -1165,6 +1167,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val params = window.attributes
         params.screenBrightness = if (physicalScreenDimmed) 0.02f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
         window.attributes = params
+        if (::physicalScreenDimButton.isInitialized) {
+            physicalScreenDimButton.text = if (physicalScreenDimmed) "Pulihkan layar HP" else "Redupkan layar HP"
+        }
         status.text = if (physicalScreenDimmed) {
             "Layar HP diredupkan • Virtual Display tetap berjalan"
         } else {
@@ -1179,6 +1184,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val params = window.attributes
         params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
         window.attributes = params
+        if (::physicalScreenDimButton.isInitialized) physicalScreenDimButton.text = "Redupkan layar HP"
     }
 
     private fun applyImmersiveMode() {
