@@ -598,8 +598,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                             isCheckable = true
                             isChecked = launcherEnabled
                         }
-                        menu.menu.add(0, 7, 6, "Aktifkan Native Trackpad (layar HP)")
-                        menu.menu.add(0, 8, 7, "Nonaktifkan Native Trackpad")
                         menu.setOnMenuItemClickListener { item ->
                             when (item.itemId) {
                                 1 -> topBar.visibility = View.VISIBLE
@@ -616,23 +614,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                                     launcherPrefs.edit().putBoolean("enabled", enabled).apply()
                                     appendRuntimeLog(if (enabled) "Saku Desktop Launcher diaktifkan." else "Saku Desktop Launcher dinonaktifkan.")
                                     status.text = if (enabled) "Saku Desktop Launcher aktif." else "Saku Desktop Launcher nonaktif."
-                                }
-                                7 -> {
-                                    if (!android.provider.Settings.canDrawOverlays(this)) {
-                                        val permissionIntent = android.content.Intent(
-                                            android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                            android.net.Uri.parse("package:$packageName")
-                                        )
-                                        startActivity(permissionIntent)
-                                        status.text = "Izinkan tampil di atas aplikasi lain, lalu aktifkan Native Trackpad lagi."
-                                    } else {
-                                        startService(android.content.Intent(this, NativeTrackpadService::class.java))
-                                        status.text = "Native Trackpad dimulai • target layar HP (display 0)."
-                                    }
-                                }
-                                8 -> {
-                                    stopService(android.content.Intent(this, NativeTrackpadService::class.java))
-                                    status.text = "Native Trackpad dihentikan."
                                 }
                             }
                             true
