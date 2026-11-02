@@ -100,7 +100,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var keyboardPanel: LinearLayout
     private lateinit var imeBridgeEditText: EditText
     private var keyboardPanelVisible = false
-    private var gamepadModeActive = false
     private var physicalScreenDimmed = false
     private lateinit var physicalScreenDimButton: Button
     private var assistantBallView: TextView? = null
@@ -521,7 +520,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         root.addView(topBar, FrameLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP).apply {
             leftMargin = dp(7); rightMargin = dp(7); topMargin = dp(7)
         })
-        var gamepadOverlay: VirtualMobaGamepadView? = null
         val assistantBall = TextView(this).apply {
             text = "V"
             textSize = 19f
@@ -590,10 +588,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         menu.menu.add(0, 2, 1, if (systemKeyboardRequested) "Sembunyikan Keyboard Android" else "Keyboard Android")
                         menu.menu.add(0, 3, 2, "Keyboard Cyberdeck")
                         menu.menu.add(0, 4, 3, if (keyboardPanelVisible) "Sembunyikan keyboard Cyberdeck" else "Tampilkan keyboard Cyberdeck")
-                        menu.menu.add(0, 5, 4, if (gamepadOverlay?.visibility == View.VISIBLE) "Sembunyikan Virtual Game Pad" else "Tampilkan Virtual Game Pad")
-                        menu.menu.add(0, 6, 5, "Atur posisi tombol Game Pad")
-                        menu.menu.add(0, 7, 6, "Pemetaan titik sentuh")
-                        menu.menu.add(0, 8, 7, "Atur ukuran masing-masing tombol")
                         menu.setOnMenuItemClickListener { item ->
                             when (item.itemId) {
                                 1 -> topBar.visibility = View.VISIBLE
@@ -603,91 +597,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                                     keyboardPanelVisible = !keyboardPanelVisible
                                     keyboardPanel.visibility = if (keyboardPanelVisible) View.VISIBLE else View.GONE
                                     updateDesktopLayout(root.width, root.height)
-                                }
-                                5 -> {
-                                    if (resources.configuration.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-                                        status.text = "Virtual Game Pad hanya tersedia dalam mode landscape."
-                                    } else if ((virtualDisplayController?.displayId ?: -1) < 0) {
-                                        status.text = "Buat virtual display terlebih dahulu."
-                                    } else {
-                                        gamepadModeActive = gamepadOverlay?.visibility != View.VISIBLE
-                                        gamepadOverlay?.visibility = if (gamepadModeActive) View.VISIBLE else View.GONE
-                                        status.text = if (gamepadModeActive) "Virtual Game Pad aktif." else "Virtual Game Pad disembunyikan."
-                                        updateDesktopLayout(root.width, root.height)
-                                    }
-                                }
-                                6 -> {
-                                    if (gamepadOverlay == null) {
-                                        status.text = "Tampilkan Virtual Game Pad dahulu."
-                                    } else {
-                                        gamepadModeActive = true
-                                        gamepadOverlay?.visibility = View.VISIBLE
-                                        gamepadOverlay?.setEditMode(true)
-                                        updateDesktopLayout(root.width, root.height)
-                                        AlertDialog.Builder(this)
-                                            .setTitle("Atur posisi Game Pad")
-                                            .setMessage("Seret analog dan tombol ke posisi yang kamu inginkan. Posisi tersimpan otomatis.")
-                                            .setPositiveButton("Selesai") { _, _ -> gamepadOverlay?.setEditMode(false) }
-                                            .setNegativeButton("Batal") { _, _ -> gamepadOverlay?.setEditMode(false) }
-                                            .show()
-                                    }
-                                }                                7 -> {
-                                    val overlay = gamepadOverlay
-                                    if (overlay == null || (virtualDisplayController?.displayId ?: -1) < 0) {
-                                        status.text = "Aktifkan virtual display dahulu."
-                                    } else {
-                                        val ids = arrayOf("stick", "attack", "skill1", "skill2", "skill3", "ult", "spell", "recall", "regen")
-                                        val labels = arrayOf("Analog / Gerak", "Attack", "Skill 1", "Skill 2", "Skill 3", "Ultimate", "Spell", "Recall", "Regen")
-                                        AlertDialog.Builder(this).setTitle("Pilih kontrol untuk dipetakan")
-                                            .setItems(labels) { _, which ->
-                                                overlay.visibility = View.VISIBLE
-                                                overlay.startMapping(ids[which]) {
-                                                    status.text = "Titik target " + labels[which] + " tersimpan."
-                                                }
-                                                status.text = "Ketuk lokasi target " + labels[which] + " pada area layar."
-                                            }.setNegativeButton("Batal", null).show()
-                                    }
-                                }
-                                8 -> {
-                                    val overlay = gamepadOverlay
-                                    if (overlay == null) {
-                                        status.text = "Tampilkan Virtual Game Pad dahulu."
-                                    } else {
-                                        val ids = arrayOf("stick", "attack", "skill1", "skill2", "skill3", "ult", "spell")
-                                        val labels = arrayOf("Analog / Gerak", "Attack", "Skill 1", "Skill 2", "Skill 3", "Ultimate", "Spell")
-                                        AlertDialog.Builder(this)
-                                            .setTitle("Pilih tombol yang ukurannya ingin diubah")
-                                            .setItems(labels) { _, which ->
-                                                val controlId = ids[which]
-                                                val seek = SeekBar(this).apply {
-                                                    max = 135
-                                                    progress = ((overlay.getControlSize(controlId) * 1000f).toInt() - 25).coerceIn(0, 135)
-                                                }
-                                                val value = TextView(this).apply {
-                                                    text = "Ukuran: ${(seek.progress + 25) / 10f}% dari sisi pendek layar"
-                                                    setPadding(dp(20), dp(12), dp(20), dp(4))
-                                                }
-                                                val panel = LinearLayout(this).apply {
-                                                    orientation = LinearLayout.VERTICAL
-                                                    addView(value)
-                                                    addView(seek, LinearLayout.LayoutParams(-1, -2))
-                                                }
-                                                seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                                                    override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
-                                                        val radius = (progress + 25) / 1000f
-                                                        overlay.setControlSize(controlId, radius)
-                                                        value.text = "Ukuran: ${(progress + 25) / 10f}% dari sisi pendek layar"
-                                                    }
-                                                    override fun onStartTrackingTouch(bar: SeekBar?) {}
-                                                    override fun onStopTrackingTouch(bar: SeekBar?) {}
-                                                })
-                                                AlertDialog.Builder(this)
-                                                    .setTitle("Ukuran ${labels[which]}")
-                                                    .setView(panel)
-                                                    .setPositiveButton("Selesai", null)
-                                                    .show()
-                                            }.setNegativeButton("Batal", null).show()
-                                    }
                                 }
                             }
                             true
@@ -718,20 +627,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             ballParams.topMargin = (maxY * yPercent / 100f).toInt()
             root.updateViewLayout(assistantBall, ballParams)
         }
-        gamepadOverlay = VirtualMobaGamepadView(
-            this,
-            { virtualDisplayController },
-            { targetWidth to targetHeight },
-            { preview?.let { p -> android.graphics.RectF(p.left.toFloat(), p.top.toFloat(), (p.left + p.width).toFloat(), (p.top + p.height).toFloat()) } }
-        ).apply {
-            visibility = View.GONE
-            elevation = dp(24).toFloat()
-        }
-        root.addView(gamepadOverlay, FrameLayout.LayoutParams(-1, -1))
-        // Keep the assistant ball above the full-screen transparent gamepad overlay so it remains tappable.
-        assistantBall.elevation = dp(32).toFloat()
-        assistantBall.bringToFront()
-
         // Keyboard sederhana bergaya Gboard: tombol besar, baris standar, tanpa tombol fungsi yang memenuhi ruang.
         // Area preview, trackpad, dan jalur Direct Touch sengaja tidak diubah.
         keyboardPanel = LinearLayout(this).apply {
@@ -2394,10 +2289,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 preview?.layoutParams = it
             }
 
-            // Trackpad stays available as a floating overlay only outside gamepad
-            // and keyboard modes; it no longer reserves a side column.
+            // Trackpad is a floating overlay and does not reserve a side column.
             panelParams?.let {
-                if (gamepadModeActive || keyboardPanelVisible) {
+                if (keyboardPanelVisible) {
                     bottomPanel.visibility = View.GONE
                     it.width = 0
                     it.height = 0
