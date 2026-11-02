@@ -2381,88 +2381,63 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val keyboardParams = keyboardPanel.layoutParams as? FrameLayout.LayoutParams
 
         if (landscape) {
-            val sideGap = dp(6)
-            val maxCenterHeight = (rootHeight * 92 / 100).coerceAtLeast(dp(100))
-            val keyboardMode = keyboardPanelVisible && !gamepadModeActive
-            val keyboardWidth = if (keyboardMode) {
-                ((rootWidth * 50 / 100) * keyboardLandscapeWidthPercent / 100)
-                    .coerceIn(dp(140), (rootWidth * 58 / 100).coerceAtLeast(dp(140)))
-            } else 0
-            val touchWidth = if (keyboardMode || gamepadModeActive) 0 else {
-                (rootWidth * touchpadWidthPercent / 100).coerceIn(dp(120), (rootWidth * 45 / 100).coerceAtLeast(dp(120)))
-            }
-            val availablePreviewWidth = if (keyboardMode) {
-                (rootWidth - keyboardWidth - sideGap * 3).coerceAtLeast(dp(120))
-            } else if (gamepadModeActive) {
-                (rootWidth * 54 / 100).coerceAtLeast(dp(120))
-            } else {
-                (rootWidth - keyboardWidth - touchWidth - sideGap * 4).coerceAtLeast(dp(120))
-            }
-            var desktopWidth = availablePreviewWidth
-            var desktopHeight = (desktopWidth / aspect).toInt()
-            if (desktopHeight > maxCenterHeight) {
-                desktopHeight = maxCenterHeight
-                desktopWidth = (desktopHeight * aspect).toInt()
-            }
+            // Landscape desktop uses the full available screen. Keep the virtual
+            // display aspect ratio and center it; input overlays float above it.
+            val desktopWidth = rootWidth
+            val desktopHeight = minOf(rootHeight, (desktopWidth / aspect).toInt().coerceAtLeast(1))
+            val fittedWidth = minOf(desktopWidth, (desktopHeight * aspect).toInt().coerceAtLeast(1))
             previewParams?.let {
-                it.width = desktopWidth
+                it.width = fittedWidth
                 it.height = desktopHeight
-                it.gravity = if (keyboardMode) Gravity.LEFT or Gravity.CENTER_VERTICAL else Gravity.CENTER
-                it.leftMargin = if (keyboardMode) sideGap else 0
-                it.rightMargin = 0; it.topMargin = 0; it.bottomMargin = 0
+                it.gravity = Gravity.CENTER
+                it.leftMargin = 0; it.rightMargin = 0; it.topMargin = 0; it.bottomMargin = 0
                 preview?.layoutParams = it
             }
+
+            // Trackpad stays available as a floating overlay only outside gamepad
+            // and keyboard modes; it no longer reserves a side column.
             panelParams?.let {
-                it.width = touchWidth
-                if (gamepadModeActive || keyboardMode) {
+                if (gamepadModeActive || keyboardPanelVisible) {
                     bottomPanel.visibility = View.GONE
+                    it.width = 0
                     it.height = 0
-                    it.gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
-                    it.leftMargin = 0; it.rightMargin = 0; it.topMargin = 0; it.bottomMargin = 0
                 } else {
                     bottomPanel.visibility = View.VISIBLE
-                    it.height = (rootHeight * touchpadLandscapeHeightPercent / 100).coerceIn(dp(130), rootHeight)
-                    if (touchpadLandscapeHasCustomPosition) {
-                        val maxX = (rootWidth - it.width).coerceAtLeast(0)
-                        val maxY = (rootHeight - it.height).coerceAtLeast(0)
-                        it.gravity = Gravity.TOP or Gravity.LEFT
-                        it.leftMargin = (maxX * touchpadLandscapeXPercent / 100f).toInt()
-                        it.topMargin = (maxY * touchpadLandscapeYPercent / 100f).toInt()
-                        it.rightMargin = 0; it.bottomMargin = 0
-                    } else {
-                        it.gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
-                        it.leftMargin = sideGap; it.rightMargin = 0; it.topMargin = 0; it.bottomMargin = 0
-                    }
+                    it.width = (rootWidth * touchpadWidthPercent / 100)
+                        .coerceIn(dp(120), (rootWidth * 45 / 100).coerceAtLeast(dp(120)))
+                    it.height = (rootHeight * touchpadLandscapeHeightPercent / 100)
+                        .coerceIn(dp(130), rootHeight)
                 }
+                if (touchpadLandscapeHasCustomPosition) {
+                    val maxX = (rootWidth - it.width).coerceAtLeast(0)
+                    val maxY = (rootHeight - it.height).coerceAtLeast(0)
+                    it.gravity = Gravity.TOP or Gravity.LEFT
+                    it.leftMargin = (maxX * touchpadLandscapeXPercent / 100f).toInt()
+                    it.topMargin = (maxY * touchpadLandscapeYPercent / 100f).toInt()
+                } else {
+                    it.gravity = Gravity.LEFT or Gravity.CENTER_VERTICAL
+                    it.leftMargin = dp(6)
+                    it.topMargin = 0
+                }
+                it.rightMargin = 0; it.bottomMargin = 0
                 bottomPanel.layoutParams = it
             }
+
+            // Do not place the keyboard in a left/right side column. When the
+            // in-app keyboard is requested, show it as a centered bottom overlay.
             keyboardParams?.let {
-                keyboardPanel.visibility = if (keyboardMode) View.VISIBLE else View.GONE
-                it.width = keyboardWidth
+                keyboardPanel.visibility = if (keyboardPanelVisible) View.VISIBLE else View.GONE
+                it.width = (rootWidth * keyboardLandscapeWidthPercent / 100)
+                    .coerceIn(dp(220).coerceAtMost(rootWidth), rootWidth)
                 it.height = dp(keyboardLandscapeHeightDp).coerceAtMost(rootHeight)
-                if (keyboardMode) {
-                    it.width = keyboardWidth
-                    if (keyboardLandscapeHasCustomPosition) {
-                        val maxX = (rootWidth - it.width).coerceAtLeast(0)
-                        val maxY = (rootHeight - it.height).coerceAtLeast(0)
-                        it.gravity = Gravity.TOP or Gravity.START
-                        it.leftMargin = (maxX * keyboardLandscapeXPercent / 100f).toInt()
-                        it.topMargin = (maxY * keyboardLandscapeYPercent / 100f).toInt()
-                        it.rightMargin = 0; it.bottomMargin = 0
-                    } else {
-                        it.gravity = Gravity.RIGHT or Gravity.CENTER_VERTICAL
-                        it.leftMargin = 0; it.rightMargin = sideGap; it.topMargin = 0; it.bottomMargin = 0
-                    }
-                } else {
-                    it.width = 0
-                    it.gravity = Gravity.RIGHT or Gravity.CENTER_VERTICAL
-                }
+                it.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                it.leftMargin = dp(7); it.rightMargin = dp(7)
+                it.topMargin = 0; it.bottomMargin = dp(8)
                 keyboardPanel.layoutParams = it
             }
         } else {
             // Portrait preview fills the app height, matching the Cyber Saku Dex
             // full-height preview behavior. Width remains controlled by its slider.
-            // The virtual display resolution stays unchanged; SurfaceView scales to frame.
             val desktopWidth = (rootWidth * previewSizePercent / 100)
                 .coerceIn(dp(180).coerceAtMost(rootWidth), rootWidth)
             val desktopHeight = rootHeight
