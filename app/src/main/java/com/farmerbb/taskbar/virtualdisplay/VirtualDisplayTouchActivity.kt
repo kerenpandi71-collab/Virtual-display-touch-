@@ -86,7 +86,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var shizukuBridge: ShizukuBridge
     private var virtualDisplayController: VirtualDisplayController? = null
     private var recentAppsPresentation: Presentation? = null
-    private var dexLauncherPresentation: DexLauncherPresentation? = null
     private var preview: SurfaceView? = null
     private var cursorOverlay: View? = null
     private val mouseInputExecutor = Executors.newSingleThreadExecutor { runnable ->
@@ -338,8 +337,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         actions.addView(actionButton("Tutup") {
             runCatching { recentAppsPresentation?.dismiss() }
             recentAppsPresentation = null
-            runCatching { dexLauncherPresentation?.dismiss() }
-            dexLauncherPresentation = null
             virtualDisplayController?.close()
             virtualDisplayController = null
             clearPreview()
@@ -1893,8 +1890,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         keyboardInputExecutor.shutdownNow()
         runCatching { recentAppsPresentation?.dismiss() }
         recentAppsPresentation = null
-        runCatching { dexLauncherPresentation?.dismiss() }
-        dexLauncherPresentation = null
         virtualDisplayController?.close()
         virtualDisplayController = null
         clearPreview()
@@ -1931,34 +1926,20 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     private fun showDexLauncherOnVirtualDisplay() {
-        val id = virtualDisplayController?.displayId ?: return
-        val display = (getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).getDisplay(id)
-        if (display == null) {
-            status.text = "Launcher belum bisa ditampilkan: display virtual belum siap."
-            appendRuntimeLog("Launcher: display $id belum tersedia.")
+        val id = virtualDisplayController?.displayId ?: -1
+        if (id < 0) {
+            status.text = "Mulai virtual display dahulu sebelum membuka launcher."
             return
         }
-        runCatching { dexLauncherPresentation?.dismiss() }
-        val presentation = DexLauncherPresentation(this, display) { component ->
-            Thread({
-                val result = shizukuBridge.launchAppOnDisplay(id, component)
-                runOnUiThread {
-                    status.text = result
-                    appendRuntimeLog("Launcher • $result")
-                }
-            }, "SakuDesktopLaunchApp").start()
+        val component = "$packageName/com.farmerbb.taskbar.virtualdisplay.DexLauncherActivity"
+        status.text = "Membuka Saku Desktop pada virtual display $id…"
+        keyboardInputExecutor.execute {
+            val result = shizukuBridge.launchAppOnDisplay(id, component)
+            runOnUiThread {
+                status.text = result
+                appendRuntimeLog("Launcher Saku Desktop • $result")
+            }
         }
-        dexLauncherPresentation = presentation
-        presentation.setOnDismissListener {
-            if (dexLauncherPresentation === presentation) dexLauncherPresentation = null
-        }
-        runCatching { presentation.show() }.onFailure { error ->
-            if (dexLauncherPresentation === presentation) dexLauncherPresentation = null
-            status.text = "Launcher gagal ditampilkan: ${error.message ?: error.javaClass.simpleName}"
-            appendRuntimeLog(status.text.toString())
-        }
-        status.text = "Launcher Saku Desktop tampil di virtual display $id."
-        appendRuntimeLog("Launcher DeX-style aktif pada virtual display $id.")
     }
 
     private fun appendRuntimeLog(message: String) {
