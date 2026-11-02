@@ -86,6 +86,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var shizukuBridge: ShizukuBridge
     private var virtualDisplayController: VirtualDisplayController? = null
     private var recentAppsPresentation: Presentation? = null
+    private var dexLauncherPresentation: DexLauncherPresentation? = null
     private var preview: SurfaceView? = null
     private var cursorOverlay: View? = null
     private val mouseInputExecutor = Executors.newSingleThreadExecutor { runnable ->
@@ -337,6 +338,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         actions.addView(actionButton("Tutup") {
             runCatching { recentAppsPresentation?.dismiss() }
             recentAppsPresentation = null
+            runCatching { dexLauncherPresentation?.dismiss() }
+            dexLauncherPresentation = null
             virtualDisplayController?.close()
             virtualDisplayController = null
             clearPreview()
@@ -591,6 +594,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         menu.menu.add(0, 2, 1, if (systemKeyboardRequested) "Sembunyikan Keyboard Android" else "Keyboard Android")
                         menu.menu.add(0, 3, 2, "Keyboard Cyberdeck")
                         menu.menu.add(0, 4, 3, if (keyboardPanelVisible) "Sembunyikan keyboard Cyberdeck" else "Tampilkan keyboard Cyberdeck")
+                        menu.menu.add(0, 5, 4, "Saku Desktop Launcher")
                         menu.setOnMenuItemClickListener { item ->
                             when (item.itemId) {
                                 1 -> topBar.visibility = View.VISIBLE
@@ -601,6 +605,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                                     keyboardPanel.visibility = if (keyboardPanelVisible) View.VISIBLE else View.GONE
                                     updateDesktopLayout(root.width, root.height)
                                 }
+                                5 -> showDexLauncherOnVirtualDisplay()
                             }
                             true
                         }
@@ -1888,6 +1893,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         keyboardInputExecutor.shutdownNow()
         runCatching { recentAppsPresentation?.dismiss() }
         recentAppsPresentation = null
+        runCatching { dexLauncherPresentation?.dismiss() }
+        dexLauncherPresentation = null
         virtualDisplayController?.close()
         virtualDisplayController = null
         clearPreview()
@@ -1931,8 +1938,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             appendRuntimeLog("Launcher: display $id belum tersedia.")
             return
         }
-        runCatching { recentAppsPresentation?.dismiss() }
-        recentAppsPresentation = DexLauncherPresentation(this, display) { component ->
+        runCatching { dexLauncherPresentation?.dismiss() }
+        val presentation = DexLauncherPresentation(this, display) { component ->
             Thread({
                 val result = shizukuBridge.launchAppOnDisplay(id, component)
                 runOnUiThread {
@@ -1940,11 +1947,15 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                     appendRuntimeLog("Launcher • $result")
                 }
             }, "SakuDesktopLaunchApp").start()
-        }.also { presentation ->
-            runCatching { presentation.show() }.onFailure { error ->
-                status.text = "Launcher gagal ditampilkan: ${error.message ?: error.javaClass.simpleName}"
-                appendRuntimeLog(status.text.toString())
-            }
+        }
+        dexLauncherPresentation = presentation
+        presentation.setOnDismissListener {
+            if (dexLauncherPresentation === presentation) dexLauncherPresentation = null
+        }
+        runCatching { presentation.show() }.onFailure { error ->
+            if (dexLauncherPresentation === presentation) dexLauncherPresentation = null
+            status.text = "Launcher gagal ditampilkan: ${error.message ?: error.javaClass.simpleName}"
+            appendRuntimeLog(status.text.toString())
         }
         status.text = "Launcher Saku Desktop tampil di virtual display $id."
         appendRuntimeLog("Launcher DeX-style aktif pada virtual display $id.")
