@@ -730,13 +730,12 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         keyboardPanel.addView(keyboardTitle)
 
         val layoutSelector = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        fun selectKeyboardLayout(mode: Int) {
-            keyboardLayoutMode = mode.coerceIn(0, 2)
-            getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE).edit().putInt("layout_mode", keyboardLayoutMode).apply()
-            rebuildKeyboardRows()
-        }
+        val layoutButtons = mutableListOf<Button>()
         listOf("NORMAL", "CODING", "PC").forEachIndexed { index, label ->
-            layoutSelector.addView(actionButton(label) { selectKeyboardLayout(index) }, LinearLayout.LayoutParams(0, dp(27), 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
+            val button = actionButton(label) { }
+            button.tag = index
+            layoutButtons.add(button)
+            layoutSelector.addView(button, LinearLayout.LayoutParams(0, dp(27), 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
         }
         keyboardPanel.addView(layoutSelector, LinearLayout.LayoutParams(-1, dp(31)))
         val editActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
@@ -823,6 +822,13 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             updateModifierLabels()
         }
         rebuildKeyboardRows()
+        layoutButtons.forEach { button ->
+            button.setOnClickListener {
+                keyboardLayoutMode = (button.tag as? Int ?: 0).coerceIn(0, 2)
+                getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE).edit().putInt("layout_mode", keyboardLayoutMode).apply()
+                rebuildKeyboardRows()
+            }
+        }
         root.addView(keyboardPanel, FrameLayout.LayoutParams(-1, dp(keyboardHeightDp), Gravity.BOTTOM).apply {
             leftMargin = dp(7); rightMargin = dp(7); bottomMargin = dp(12)
         })
