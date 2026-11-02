@@ -100,6 +100,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var keyboardPanel: LinearLayout
     private lateinit var imeBridgeEditText: EditText
     private var keyboardPanelVisible = false
+    private var trackpadPanelEnabled = true
     private var physicalScreenDimmed = false
     private lateinit var physicalScreenDimButton: Button
     private var assistantBallView: TextView? = null
@@ -190,7 +191,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val resolutionSuffix = if (landscapeAtLaunch) "landscape" else "portrait"
         targetWidth = displayPrefs.getInt("${resolutionSuffix}_width", 960).coerceIn(320, 2560)
         targetHeight = displayPrefs.getInt("${resolutionSuffix}_height", 820).coerceIn(320, 2560)
-        targetDpi = displayPrefs.getInt("${resolutionSuffix}_dpi", 160).coerceIn(120, 640)
+        targetDpi = displayPrefs.getInt("${resolutionSuffix}_dpi", 160).coerceIn(40, 640)
         resolutionEditorLandscape = landscapeAtLaunch
         previewSizePortraitPercent = displayPrefs.getInt("preview_portrait_percent", 100).coerceIn(50, 100)
         previewSizeLandscapePercent = displayPrefs.getInt("preview_landscape_percent", 100).coerceIn(50, 100)
@@ -1491,9 +1492,10 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     private fun toggleInputPanel() {
-        val show = bottomPanel.visibility != View.VISIBLE
+        trackpadPanelEnabled = !trackpadPanelEnabled
+        val show = trackpadPanelEnabled && !keyboardPanelVisible
         bottomPanel.visibility = if (show) View.VISIBLE else View.GONE
-        panelToggleButton.text = if (show) "Panel" else "Panel+"
+        panelToggleButton.text = if (trackpadPanelEnabled) "Panel" else "Panel+"
         if (!show) {
             val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
             imm.hideSoftInputFromWindow(window.decorView.windowToken, 0)
@@ -2190,9 +2192,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val height = resolutionHeightInput.text.toString().toIntOrNull()
         val dpi = resolutionDpiInput.text.toString().toIntOrNull()
         if (width == null || height == null || dpi == null ||
-            width !in 320..2560 || height !in 320..2560 || dpi !in 120..640
+            width !in 320..2560 || height !in 320..2560 || dpi !in 40..640
         ) {
-            status.text = "Resolusi harus 320–2560 px dan DPI 120–640."
+            status.text = "Resolusi harus 320–2560 px dan DPI 40–640."
             return
         }
         val resolutionSuffix = if (resolutionEditorLandscape) "landscape" else "portrait"
@@ -2227,7 +2229,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val suffix = if (landscape) "landscape" else "portrait"
         val width = prefs.getInt("${suffix}_width", 960).coerceIn(320, 2560)
         val height = prefs.getInt("${suffix}_height", 820).coerceIn(320, 2560)
-        val dpi = prefs.getInt("${suffix}_dpi", 160).coerceIn(120, 640)
+        val dpi = prefs.getInt("${suffix}_dpi", 160).coerceIn(40, 640)
         resolutionProfileLabel.text = "Profil: ${if (landscape) "Landscape" else "Portrait"}"
         resolutionWidthInput.setText(width.toString())
         resolutionHeightInput.setText(height.toString())
@@ -2242,7 +2244,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val suffix = if (landscape) "landscape" else "portrait"
         targetWidth = prefs.getInt("${suffix}_width", 960).coerceIn(320, 2560)
         targetHeight = prefs.getInt("${suffix}_height", 820).coerceIn(320, 2560)
-        targetDpi = prefs.getInt("${suffix}_dpi", 160).coerceIn(120, 640)
+        targetDpi = prefs.getInt("${suffix}_dpi", 160).coerceIn(40, 640)
         cursorX = cursorX.coerceIn(0f, (targetWidth - 1).toFloat())
         cursorY = cursorY.coerceIn(0f, (targetHeight - 1).toFloat())
         preview?.contentDescription = "Desktop virtual display ${targetWidth} x ${targetHeight} • ${targetDpi} DPI"
@@ -2291,7 +2293,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
             // Trackpad is a floating overlay and does not reserve a side column.
             panelParams?.let {
-                if (keyboardPanelVisible) {
+                if (keyboardPanelVisible || !trackpadPanelEnabled) {
                     bottomPanel.visibility = View.GONE
                     it.width = 0
                     it.height = 0
@@ -2344,6 +2346,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 preview?.layoutParams = it
             }
             panelParams?.let {
+                bottomPanel.visibility = if (trackpadPanelEnabled && !keyboardPanelVisible) View.VISIBLE else View.GONE
                 val panelHeight = (rootHeight * touchpadPortraitHeightPercent / 100)
                     .coerceIn(dp(120), (rootHeight * 65 / 100).coerceAtLeast(dp(120)))
                 it.width = (rootWidth * touchpadPortraitWidthPercent / 100)
