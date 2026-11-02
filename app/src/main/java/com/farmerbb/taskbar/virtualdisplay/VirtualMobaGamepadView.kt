@@ -58,7 +58,9 @@ internal class VirtualMobaGamepadView(
         Control("skill2", .78f, .91f, "2", .052f, .78f, .91f),
         Control("skill3", .88f, .92f, "3", .052f, .88f, .92f),
         Control("ult", .96f, .82f, "ULT", .052f, .96f, .82f),
-        Control("spell", .65f, .69f, "SP", .045f, .65f, .69f)
+        Control("spell", .65f, .69f, "SP", .045f, .65f, .69f),
+        Control("recall", .56f, .92f, "RCL", .042f, .56f, .92f),
+        Control("regen", .59f, .80f, "REG", .042f, .59f, .80f)
     )
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val active = linkedMapOf<Int, Control>()
