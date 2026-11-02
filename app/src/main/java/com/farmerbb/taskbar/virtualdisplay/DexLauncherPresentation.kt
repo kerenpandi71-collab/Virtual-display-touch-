@@ -20,6 +20,28 @@ class DexLauncherActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Saku Desktop is only intended for a secondary display. Never render it on
+        // the built-in phone display (display 0), even if Android launches it there.
+        if ((display?.displayId ?: 0) == 0) {
+            finish()
+            return
+        }
+
+        // Consume Back while the launcher is open. If the search field has the IME
+        // visible, Android can hide it first; the launcher itself must remain open.
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                    as android.view.inputmethod.InputMethodManager
+                val focused = currentFocus
+                if (focused != null) {
+                    imm.hideSoftInputFromWindow(focused.windowToken, 0)
+                    focused.clearFocus()
+                }
+            }
+        })
+
         window.setBackgroundDrawableResource(android.R.color.transparent)
         val root = LinearLayout(this@DexLauncherActivity).apply {
             orientation = LinearLayout.VERTICAL
