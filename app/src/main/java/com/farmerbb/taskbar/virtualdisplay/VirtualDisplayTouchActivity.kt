@@ -42,6 +42,14 @@ import androidx.activity.ComponentActivity
 
 /** Main touchpad UI. Preview fills its frame; touchpad maps to the fixed 720 x 1280 virtual display. */
 class VirtualDisplayTouchActivity : ComponentActivity() {
+    private data class DirectTouchFrame(
+        val controller: VirtualDisplayController,
+        val action: Int,
+        val pointerIds: IntArray,
+        val xs: FloatArray,
+        val ys: FloatArray,
+        val finalUp: Boolean
+    )
     private lateinit var status: TextView
     private lateinit var runtimeLog: TextView
     private lateinit var runtimeLogScroll: ScrollView
@@ -161,6 +169,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var lastScrollCentroidX = 0f
     private var lastScrollCentroidY = 0f
 
+    private val directTouchQueueLock = Any()
+    private val directTouchQueue = java.util.ArrayDeque<DirectTouchFrame>()
+    private var directTouchDrainScheduled = false
     private val mouseMoveLock = Any()
     private var pendingMouseX = Float.NaN
     private var pendingMouseY = Float.NaN
@@ -1517,19 +1528,64 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) directTouchDown = true
         if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) directTouchDown = false
         val pointerIds = IntArray(count) { i -> event.getPointerId(i) }
-        val isFinalUp = event.actionMasked == MotionEvent.ACTION_UP
+        enqueueDirectTouchFrame(
+            DirectTouchFrame(
+                controller = controller,
+                action = action,
+                pointerIds = pointerIds,
+                xs = xs,
+                ys = ys,
+                finalUp = event.actionMasked == MotionEvent.ACTION_UP
+            )
+        )
+        return true
+    }
+
+    /**
+     * Keep Direct Touch transitions ordered, but collapse consecutive stale MOVE samples.
+     * This prevents a slow Binder injection from building an unbounded queue of obsolete
+     * coordinates while never dropping DOWN, POINTER_DOWN, POINTER_UP, UP or CANCEL.
+     */
+    private fun enqueueDirectTouchFrame(frame: DirectTouchFrame) {
+        var scheduleDrain = false
+        synchronized(directTouchQueueLock) {
+            if ((frame.action and MotionEvent.ACTION_MASK) == MotionEvent.ACTION_MOVE &&
+                directTouchQueue.peekLast()?.let {
+                    (it.action and MotionEvent.ACTION_MASK) == MotionEvent.ACTION_MOVE
+                } == true
+            ) {
+                directTouchQueue.removeLast()
+            }
+            directTouchQueue.addLast(frame)
+            if (!directTouchDrainScheduled) {
+                directTouchDrainScheduled = true
+                scheduleDrain = true
+            }
+        }
+        if (!scheduleDrain) return
         mouseInputExecutor.execute {
-            val accepted = controller.injectTouchPoints(action, pointerIds, xs, ys)
-            runOnUiThread {
+            while (true) {
+                val next = synchronized(directTouchQueueLock) {
+                    if (directTouchQueue.isEmpty()) {
+                        directTouchDrainScheduled = false
+                        null
+                    } else directTouchQueue.removeFirst()
+                } ?: break
+                val accepted = next.controller.injectTouchPoints(
+                    next.action, next.pointerIds, next.xs, next.ys
+                )
                 if (!accepted) {
-                    appendRuntimeLog("Direct Touch multi-jari gagal • action=$action • ${shizukuBridge.getLastError()}")
-                    status.text = "Direct Touch gagal • periksa Log."
-                } else if (isFinalUp) {
-                    pulseDextopCursor()
+                    runOnUiThread {
+                        appendRuntimeLog(
+                            "Direct Touch multi-jari gagal • action=${next.action} • ${shizukuBridge.getLastError()}"
+                        )
+                        status.text = "Direct Touch gagal • periksa Log."
+                    }
+                } else if (next.finalUp) {
+                    runOnUiThread { pulseDextopCursor() }
                 }
             }
         }
-        return true
     }
 
     private fun toggleInputPanel() {
