@@ -161,7 +161,7 @@ class NativeTrackpadService : Service() {
     override fun onDestroy() {
         runCatching { pad?.let { windowManager?.removeView(it) } }
         pad = null
-        if (::bridge.isInitialized) bridge.close()
+        if (::bridge.isInitialized) bridge.closeConnectionOnly()
         super.onDestroy()
     }
 
