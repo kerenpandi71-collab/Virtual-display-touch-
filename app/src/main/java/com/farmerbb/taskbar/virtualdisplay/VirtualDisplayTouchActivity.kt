@@ -591,7 +591,13 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         menu.menu.add(0, 2, 1, if (systemKeyboardRequested) "Sembunyikan Keyboard Android" else "Keyboard Android")
                         menu.menu.add(0, 3, 2, "Keyboard Cyberdeck")
                         menu.menu.add(0, 4, 3, if (keyboardPanelVisible) "Sembunyikan keyboard Cyberdeck" else "Tampilkan keyboard Cyberdeck")
-                        menu.menu.add(0, 5, 4, "Saku Desktop Launcher")
+                        val launcherPrefs = getSharedPreferences("saku_desktop_launcher", Context.MODE_PRIVATE)
+                        val launcherEnabled = launcherPrefs.getBoolean("enabled", true)
+                        menu.menu.add(0, 5, 4, "Buka Saku Desktop Launcher").isEnabled = launcherEnabled
+                        menu.menu.add(0, 6, 5, "Aktifkan Saku Desktop Launcher").apply {
+                            isCheckable = true
+                            isChecked = launcherEnabled
+                        }
                         menu.setOnMenuItemClickListener { item ->
                             when (item.itemId) {
                                 1 -> topBar.visibility = View.VISIBLE
@@ -603,6 +609,12 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                                     updateDesktopLayout(root.width, root.height)
                                 }
                                 5 -> showDexLauncherOnVirtualDisplay()
+                                6 -> {
+                                    val enabled = !launcherPrefs.getBoolean("enabled", true)
+                                    launcherPrefs.edit().putBoolean("enabled", enabled).apply()
+                                    appendRuntimeLog(if (enabled) "Saku Desktop Launcher diaktifkan." else "Saku Desktop Launcher dinonaktifkan.")
+                                    status.text = if (enabled) "Saku Desktop Launcher aktif." else "Saku Desktop Launcher nonaktif."
+                                }
                             }
                             true
                         }
