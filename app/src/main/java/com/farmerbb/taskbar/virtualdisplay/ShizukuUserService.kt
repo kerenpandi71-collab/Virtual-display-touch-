@@ -600,7 +600,20 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             lastError = "Input ditolak: koordinat bukan angka valid."
             return null
         }
-        return x.toInt().coerceIn(0, (virtualWidth - 1).coerceAtLeast(0)) to y.toInt().coerceIn(0, (virtualHeight - 1).coerceAtLeast(0))
+        // Input for the built-in phone screen must use that screen's real bounds, not
+        // the virtual display's configured 1280x720 bounds.
+        val bounds = runCatching {
+            val manager = serviceContext?.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
+                ?: return@runCatching null
+            val target = manager.getDisplay(displayId) ?: return@runCatching null
+            val metrics = android.util.DisplayMetrics()
+            @Suppress("DEPRECATION")
+            target.getRealMetrics(metrics)
+            metrics.widthPixels.coerceAtLeast(1) to metrics.heightPixels.coerceAtLeast(1)
+        }.getOrNull()
+        val width = bounds?.first ?: virtualWidth
+        val height = bounds?.second ?: virtualHeight
+        return x.toInt().coerceIn(0, width - 1) to y.toInt().coerceIn(0, height - 1)
     }
 
     private fun runInputCommand(displayId: Int, command: String, action: String): Boolean {
