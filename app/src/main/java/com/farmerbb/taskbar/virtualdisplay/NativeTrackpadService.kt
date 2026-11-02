@@ -1,12 +1,16 @@
 package com.farmerbb.taskbar.virtualdisplay
 
 import android.app.Service
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.IBinder
+import android.os.Build
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Gravity
@@ -14,6 +18,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
+import androidx.core.app.NotificationCompat
 import kotlin.math.abs
 
 /**
@@ -24,6 +29,8 @@ class NativeTrackpadService : Service() {
     private lateinit var bridge: ShizukuBridge
     private var windowManager: WindowManager? = null
     private var pad: View? = null
+    private var cursorView: TextView? = null
+    private var cursorParams: WindowManager.LayoutParams? = null
     private var cursorX = 0f
     private var cursorY = 0f
     private var screenWidth = 1
@@ -39,6 +46,7 @@ class NativeTrackpadService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        startAsForegroundService()
         bridge = ShizukuBridge(applicationContext) { message ->
             Log.i(TAG, "Shizuku: $message")
         }
@@ -57,6 +65,7 @@ class NativeTrackpadService : Service() {
                 trackpadLabel?.text = if (connected) "SAKU TRACKPAD • SIAP" else "SHIZUKU BELUM SIAP"
                 trackpadLabel?.alpha = if (connected) 0.58f else 0.9f
             }
+            if (!connected) Log.w(TAG, "Native Trackpad menunggu koneksi Shizuku")
         }
         showTrackpad()
     }
@@ -97,7 +106,65 @@ class NativeTrackpadService : Service() {
         runCatching {
             windowManager?.addView(label, params)
             pad = label
+            showCursor()
         }.onFailure { Log.e(TAG, "Gagal menampilkan panel Native Trackpad", it) }
+    }
+
+    private fun startAsForegroundService() {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= 26) {
+            manager.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "Native Trackpad", NotificationManager.IMPORTANCE_LOW)
+            )
+        }
+        val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(com.farmerbb.taskbar.R.drawable.ic_virtual_display_touch)
+            .setContentTitle("Saku Native Trackpad aktif")
+            .setContentText("Trackpad dan kursor tetap berjalan di layar utama")
+            .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .build()
+        startForeground(NOTIFICATION_ID, notification)
+    }
+
+    private fun showCursor() {
+        if (cursorView != null) return
+        val pointer = TextView(this).apply {
+            text = "➤"
+            textSize = 28f
+            setTextColor(Color.WHITE)
+            setShadowLayer(5f, 1f, 2f, Color.BLACK)
+            isClickable = false
+            isFocusable = false
+        }
+        val type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.LEFT
+            x = cursorX.toInt()
+            y = cursorY.toInt()
+        }
+        runCatching {
+            windowManager?.addView(pointer, params)
+            cursorView = pointer
+            cursorParams = params
+        }.onFailure { Log.e(TAG, "Gagal menampilkan panah kursor", it) }
+    }
+
+    private fun moveCursorOverlay() {
+        val pointer = cursorView ?: return
+        val params = cursorParams ?: return
+        params.x = cursorX.toInt()
+        params.y = cursorY.toInt()
+        runCatching { windowManager?.updateViewLayout(pointer, params) }
+            .onFailure { Log.w(TAG, "Gagal memperbarui posisi kursor", it) }
     }
 
     private fun handleTrackpad(event: MotionEvent): Boolean {
@@ -135,6 +202,7 @@ class NativeTrackpadService : Service() {
                     cursorX = (cursorX + dx * sensitivity).coerceIn(0f, (screenWidth - 1).toFloat())
                     cursorY = (cursorY + dy * sensitivity).coerceIn(0f, (screenHeight - 1).toFloat())
                     bridge.injectHover(0, cursorX, cursorY)
+                    moveCursorOverlay()
                 }
                 lastX = event.x
                 lastY = event.y
@@ -169,9 +237,13 @@ class NativeTrackpadService : Service() {
 
     override fun onDestroy() {
         runCatching { pad?.let { windowManager?.removeView(it) } }
+        runCatching { cursorView?.let { windowManager?.removeView(it) } }
         pad = null
+        cursorView = null
+        cursorParams = null
         trackpadLabel = null
         if (::bridge.isInitialized) bridge.closeConnectionOnly()
+        stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
 
@@ -179,5 +251,7 @@ class NativeTrackpadService : Service() {
 
     companion object {
         private const val TAG = "SakuNativeTrackpad"
+        private const val CHANNEL_ID = "saku_native_trackpad"
+        private const val NOTIFICATION_ID = 7101
     }
 }
