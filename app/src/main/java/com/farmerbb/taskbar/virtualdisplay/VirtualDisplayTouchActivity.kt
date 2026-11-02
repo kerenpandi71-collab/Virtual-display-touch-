@@ -2355,9 +2355,19 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 it.width = (rootWidth * keyboardLandscapeWidthPercent / 100)
                     .coerceIn(dp(220).coerceAtMost(rootWidth), rootWidth)
                 it.height = dp(keyboardLandscapeHeightDp).coerceAtMost(rootHeight)
-                it.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                it.leftMargin = dp(7); it.rightMargin = dp(7)
-                it.topMargin = 0; it.bottomMargin = dp(8)
+                if (keyboardLandscapeHasCustomPosition) {
+                    val maxX = (rootWidth - it.width).coerceAtLeast(0)
+                    val maxY = (rootHeight - it.height).coerceAtLeast(0)
+                    it.gravity = Gravity.TOP or Gravity.START
+                    it.leftMargin = (maxX * keyboardLandscapeXPercent / 100f).toInt()
+                    it.topMargin = (maxY * keyboardLandscapeYPercent / 100f).toInt()
+                    it.rightMargin = 0
+                    it.bottomMargin = 0
+                } else {
+                    it.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                    it.leftMargin = dp(7); it.rightMargin = dp(7)
+                    it.topMargin = 0; it.bottomMargin = dp(8)
+                }
                 keyboardPanel.layoutParams = it
             }
         } else {
