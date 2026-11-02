@@ -100,7 +100,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var keyboardPanel: LinearLayout
     private lateinit var imeBridgeEditText: EditText
     private var keyboardPanelVisible = false
-    private var trackpadPanelEnabled = true
+    private var trackpadPanelEnabled = false
     private var physicalScreenDimmed = false
     private lateinit var physicalScreenDimButton: Button
     private var assistantBallView: TextView? = null
@@ -345,7 +345,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         runtimeLogToggle = actionButton("Log") { toggleRuntimeLog() }
         actions.addView(runtimeLogToggle, LinearLayout.LayoutParams(0, dp(34), 0.48f))
         panelToggleButton = actionButton("Panel") { toggleInputPanel() }
-        actions.addView(panelToggleButton, LinearLayout.LayoutParams(0, dp(34), 0.58f))
+        // Legacy trackpad panel removed; input uses Direct Touch on the screen.
         directTouchButton = actionButton("Touch: ON") { toggleDirectTouch() }
         actions.addView(directTouchButton, LinearLayout.LayoutParams(0, dp(34), 0.78f))
         topBar.addView(actions)
@@ -598,6 +598,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                             isCheckable = true
                             isChecked = launcherEnabled
                         }
+                        menu.menu.add(0, 7, 6, "◀ Back")
+                        menu.menu.add(0, 8, 7, "⌂ Home")
+                        menu.menu.add(0, 9, 8, "▢ Recent")
                         menu.setOnMenuItemClickListener { item ->
                             when (item.itemId) {
                                 1 -> topBar.visibility = View.VISIBLE
@@ -615,6 +618,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                                     appendRuntimeLog(if (enabled) "Saku Desktop Launcher diaktifkan." else "Saku Desktop Launcher dinonaktifkan.")
                                     status.text = if (enabled) "Saku Desktop Launcher aktif." else "Saku Desktop Launcher nonaktif."
                                 }
+                                7 -> sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_BACK)
+                                8 -> sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_HOME)
+                                9 -> showVirtualDisplayRecentTasks()
                             }
                             true
                         }
@@ -937,14 +943,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             }
         }
         bottomPanel.addView(panelHeader)
-        val virtualNavRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        virtualNavRow.addView(actionButton("◀ Back") { sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_BACK) },
-            LinearLayout.LayoutParams(0, dp(30), 1f))
-        virtualNavRow.addView(actionButton("⌂ Home") { sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_HOME) },
-            LinearLayout.LayoutParams(0, dp(30), 1f))
-        virtualNavRow.addView(actionButton("▢ Recent") { showVirtualDisplayRecentTasks() },
-            LinearLayout.LayoutParams(0, dp(30), 1f))
-        bottomPanel.addView(virtualNavRow)
         val stage = FrameLayout(this).apply {
             setBackgroundColor(Color.rgb(10, 25, 57))
             contentDescription = "Touchpad: gerak 1 jari, tap klik, 2 jari scroll, tahan 1 detik lalu geser untuk drag"
@@ -1508,14 +1506,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     private fun toggleInputPanel() {
-        trackpadPanelEnabled = !trackpadPanelEnabled
-        val show = trackpadPanelEnabled && !keyboardPanelVisible
-        bottomPanel.visibility = if (show) View.VISIBLE else View.GONE
-        panelToggleButton.text = if (trackpadPanelEnabled) "Panel" else "Panel+"
-        if (!show) {
-            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.hideSoftInputFromWindow(window.decorView.windowToken, 0)
-        }
+        // Legacy trackpad panel is permanently disabled; use on-screen Direct Touch.
+        trackpadPanelEnabled = false
+        if (::bottomPanel.isInitialized) bottomPanel.visibility = View.GONE
     }
 
 
