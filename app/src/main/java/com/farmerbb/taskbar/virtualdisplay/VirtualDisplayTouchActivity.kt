@@ -594,7 +594,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         val launcherPrefs = getSharedPreferences("saku_desktop_launcher", Context.MODE_PRIVATE)
                         val launcherEnabled = launcherPrefs.getBoolean("enabled", true)
                         menu.menu.add(0, 5, 4, "Buka Saku Desktop Launcher").isEnabled = launcherEnabled
-                        menu.menu.add(0, 6, 5, "Aktifkan Saku Desktop Launcher").apply {
+                        menu.menu.add(0, 6, 5, "Launcher bawaan VDT aktif").apply {
                             isCheckable = true
                             isChecked = launcherEnabled
                         }
@@ -615,8 +615,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                                 6 -> {
                                     val enabled = !launcherPrefs.getBoolean("enabled", true)
                                     launcherPrefs.edit().putBoolean("enabled", enabled).apply()
-                                    appendRuntimeLog(if (enabled) "Saku Desktop Launcher diaktifkan." else "Saku Desktop Launcher dinonaktifkan.")
-                                    status.text = if (enabled) "Saku Desktop Launcher aktif." else "Saku Desktop Launcher nonaktif."
+                                    appendRuntimeLog(if (enabled) "Launcher bawaan VDT diaktifkan." else "Launcher bawaan VDT dinonaktifkan.")
+                                    status.text = if (enabled) "Launcher bawaan VDT aktif. Buka dari bola asisten bila diperlukan." else "Launcher bawaan VDT nonaktif; launcher eksternal dapat digunakan."
+                                    if (!enabled) sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_HOME)
                                 }
                                 7 -> sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_BACK)
                                 8 -> sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_HOME)
@@ -1335,12 +1336,13 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             return
         }
 
-        // APP_SWITCH is a system-policy key. Sending it through the generic
-        // injected KeyEvent path can invoke Recents on the host (display 0).
-        // Route this one key through Android's display-targeted input command.
-        if (keyCode == android.view.KeyEvent.KEYCODE_APP_SWITCH) {
+        // HOME and APP_SWITCH are system-policy keys. Route them through the
+        // display-targeted shell input command so they affect the virtual display,
+        // never the phone's built-in display.
+        if (keyCode == android.view.KeyEvent.KEYCODE_HOME ||
+            keyCode == android.view.KeyEvent.KEYCODE_APP_SWITCH) {
             keyboardInputExecutor.execute {
-                val accepted = shizukuBridge.runShellCommand("input -d $displayId keyevent ${android.view.KeyEvent.KEYCODE_APP_SWITCH}")
+                val accepted = shizukuBridge.runShellCommand("input -d $displayId keyevent $keyCode")
                 runOnUiThread {
                     if (!accepted) {
                         status.text = "Recent gagal dikirim ke display virtual."
@@ -1353,7 +1355,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             return
         }
 
-        // Back and Home keep using the existing virtual-display key injection.
+        // Back continues through the existing Shizuku virtual-display injection path.
         sendVirtualKey(keyCode)
     }
 
@@ -1927,10 +1929,22 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             densityDpi = targetDpi,
             outputSurface = surface
         )
-        Handler(Looper.getMainLooper()).postDelayed({ showDexLauncherOnVirtualDisplay() }, 1800L)
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (getSharedPreferences("saku_desktop_launcher", Context.MODE_PRIVATE)
+                    .getBoolean("enabled", true)) {
+                showDexLauncherOnVirtualDisplay()
+            } else {
+                appendRuntimeLog("Auto-launch dilewati: launcher bawaan VDT dinonaktifkan.")
+            }
+        }, 1800L)
     }
 
     private fun showDexLauncherOnVirtualDisplay() {
+        if (!getSharedPreferences("saku_desktop_launcher", Context.MODE_PRIVATE)
+                .getBoolean("enabled", true)) {
+            status.text = "Launcher bawaan VDT sedang nonaktif."
+            return
+        }
         val id = virtualDisplayController?.displayId ?: -1
         if (id < 0) {
             status.text = "Mulai virtual display dahulu sebelum membuka launcher."
