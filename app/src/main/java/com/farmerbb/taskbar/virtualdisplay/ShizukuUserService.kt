@@ -181,12 +181,35 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         InputEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
     }
 
+    private val activeMouseHoverDisplays = mutableSetOf<Int>()
+
     override fun injectHover(displayId: Int, x: Float, y: Float): Boolean {
         val point = parseDisplayPoint(displayId, x, y) ?: return false
-        return injectMouseEvent(
-            displayId, MotionEvent.ACTION_HOVER_MOVE, point.first.toFloat(), point.second.toFloat(),
+        val px = point.first.toFloat()
+        val py = point.second.toFloat()
+        val alreadyEntered = synchronized(activeMouseHoverDisplays) {
+            activeMouseHoverDisplays.contains(displayId)
+        }
+        if (!alreadyEntered) {
+            val entered = injectMouseEvent(
+                displayId, MotionEvent.ACTION_HOVER_ENTER, px, py,
+                buttonState = 0, actionName = "MOUSE_HOVER_ENTER"
+            )
+            if (!entered) {
+                lastError = "Kursor gagal memulai hover pada display=" + displayId + "."
+                return false
+            }
+            synchronized(activeMouseHoverDisplays) {
+                activeMouseHoverDisplays.add(displayId)
+            }
+        }
+        val moved = injectMouseEvent(
+            displayId, MotionEvent.ACTION_HOVER_MOVE, px, py,
             buttonState = 0, actionName = "MOUSE_MOVE"
         )
+        if (!moved) lastError = "Gerakan kursor ditolak • display=" + displayId +
+            " • x=" + point.first + " y=" + point.second
+        return moved
     }
 
     override fun injectTouchEvent(displayId: Int, action: Int, x: Float, y: Float): Boolean {
