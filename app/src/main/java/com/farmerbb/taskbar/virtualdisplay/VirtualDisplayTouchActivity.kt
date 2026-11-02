@@ -125,6 +125,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var cyberCtrl = false
     private var cyberAlt = false
     private var cyberSymbols = false
+    private var keyboardLayoutMode = 0
     private val keyboardRepeatHandler = Handler(Looper.getMainLooper())
     private lateinit var panelToggleButton: Button
     private lateinit var directTouchButton: Button
@@ -198,6 +199,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         previewSizePercent = if (landscapeAtLaunch) previewSizeLandscapePercent else previewSizePortraitPercent
         val keyboardPrefs = getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE)
         keyboardWidthPercent = keyboardPrefs.getInt("width_percent", 100).coerceIn(55, 100)
+        keyboardLayoutMode = keyboardPrefs.getInt("layout_mode", 0).coerceIn(0, 2)
         keyboardHeightDp = keyboardPrefs.getInt("height_dp", 240).coerceIn(170, 360)
         keyboardLandscapeWidthPercent = keyboardPrefs.getInt("landscape_width_percent", 100).coerceIn(55, 100)
         keyboardLandscapeHeightDp = keyboardPrefs.getInt("landscape_height_dp", 240).coerceIn(170, 360)
@@ -727,67 +729,95 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }, LinearLayout.LayoutParams(dp(32), dp(27)))
         keyboardPanel.addView(keyboardTitle)
 
-        // Editing shortcuts are sent to the focused app on the virtual display.
-        val editActions = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+        val layoutSelector = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        fun selectKeyboardLayout(mode: Int) {
+            keyboardLayoutMode = mode.coerceIn(0, 2)
+            getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE).edit().putInt("layout_mode", keyboardLayoutMode).apply()
+            rebuildKeyboardRows()
         }
+        listOf("NORMAL", "CODING", "PC").forEachIndexed { index, label ->
+            layoutSelector.addView(actionButton(label) { selectKeyboardLayout(index) }, LinearLayout.LayoutParams(0, dp(27), 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
+        }
+        keyboardPanel.addView(layoutSelector, LinearLayout.LayoutParams(-1, dp(31)))
+        val editActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         listOf("Cut", "Copy", "Paste", "Select all").forEach { label ->
-            val button = actionButton(label) {
-                sendKeyboardEditCommand(label)
-            }
-            editActions.addView(button, LinearLayout.LayoutParams(0, dp(29), 1f).apply {
-                setMargins(dp(2), dp(1), dp(2), dp(1))
-            })
+            editActions.addView(actionButton(label) { sendKeyboardEditCommand(label) }, LinearLayout.LayoutParams(0, dp(29), 1f).apply { setMargins(dp(2), dp(1), dp(2), dp(1)) })
         }
         keyboardPanel.addView(editActions, LinearLayout.LayoutParams(-1, dp(31)))
-
-        fun keyRow(labels: List<String>, weights: List<Float> = labels.map { 1f }) {
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
-            }
-            labels.forEachIndexed { index, label ->
-                val utility = label in setOf("SHIFT", "⌫", "?123", "ENTER")
-                val button = cyberKey(label, utility, repeatable = label == "⌫" || (label.length == 1 && label != "," && label != ".")) {
+        val keyboardRows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        keyboardPanel.addView(keyboardRows, LinearLayout.LayoutParams(-1, 0, 1f))
+        fun keyRow(labels: List<String>) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+            labels.forEach { label ->
+                val utility = label in setOf("SHIFT", "CTRL", "ALT", "ESC", "TAB", "⌫", "ENTER", "SPACE")
+                val button = cyberKey(label, utility, repeatable = label == "⌫") {
                     when (label) {
-                        "?123" -> {
-                            cyberSymbols = !cyberSymbols
-                            refreshCyberdeckLabels()
-                        }
-                        "SHIFT" -> {
-                            cyberShift = !cyberShift
-                            updateModifierLabels()
-                        }
+                        "SHIFT" -> { cyberShift = !cyberShift; updateModifierLabels() }
+                        "CTRL" -> { cyberCtrl = !cyberCtrl; updateModifierLabels() }
+                        "ALT" -> { cyberAlt = !cyberAlt; updateModifierLabels() }
                         "SPACE" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_SPACE)
-                        "," -> sendTypedText(if (cyberSymbols) ";" else ",")
-                        "." -> sendTypedText(if (cyberSymbols) ":" else ".")
                         "⌫" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DEL)
                         "ENTER" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_ENTER)
+                        "TAB" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_TAB)
+                        "ESC" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_ESCAPE)
+                        "↑" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DPAD_UP)
+                        "↓" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DPAD_DOWN)
+                        "←" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DPAD_LEFT)
+                        "→" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DPAD_RIGHT)
+                        "HOME" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_MOVE_HOME)
+                        "END" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_MOVE_END)
+                        "PG↑" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_PAGE_UP)
+                        "PG↓" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_PAGE_DOWN)
+                        "PRT" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_SYSRQ)
+                        "INS" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_INSERT)
+                        "DEL" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_FORWARD_DEL)
                         else -> {
-                            val key = if (cyberSymbols) symbolForCyberdeckKey(label) else label.lowercase()
-                            val printable = if (cyberShift && !cyberSymbols) key.uppercase() else key
-                            sendTypedText(printable)
-                            if (cyberShift && !cyberSymbols && printable.any { it.isLetter() }) {
-                                cyberShift = false
-                                updateModifierLabels()
-                            }
+                            sendTypedText(if (cyberShift && label.length == 1 && label[0].isLetter()) label.uppercase() else label)
+                            if (cyberShift && label.any { it.isLetter() }) { cyberShift = false; updateModifierLabels() }
                         }
                     }
                 }
                 button.tag = label
-                row.addView(button, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, weights[index]).apply {
-                    setMargins(dp(2), dp(3), dp(2), dp(3))
-                })
+                row.addView(button, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, if (label == "SPACE") 3f else if (utility) 1.5f else 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
             }
-            keyboardPanel.addView(row, LinearLayout.LayoutParams(-1, 0, 1f))
+            keyboardRows.addView(row, LinearLayout.LayoutParams(-1, 0, 1f))
         }
-
-        keyRow(listOf("1","2","3","4","5","6","7","8","9","0"), List(10) { 1f })
-        keyRow(listOf("Q","W","E","R","T","Y","U","I","O","P"), List(10) { 1f })
-        keyRow(listOf("A","S","D","F","G","H","J","K","L"), List(9) { 1f })
-        keyRow(listOf("SHIFT","Z","X","C","V","B","N","M","⌫"), listOf(1.55f,1f,1f,1f,1f,1f,1f,1f,1.55f))
-        keyRow(listOf("?123",",","SPACE",".","ENTER"), listOf(1.45f,0.8f,3.6f,0.8f,1.5f))
+        fun rebuildKeyboardRows() {
+            keyboardRows.removeAllViews()
+            cyberShift = false; cyberCtrl = false; cyberAlt = false
+            val rows = when (keyboardLayoutMode) {
+                1 -> listOf(
+                    listOf("ESC","TAB","CTRL","ALT","SHIFT","⌫"),
+                    listOf("1","2","3","4","5","6","7","8","9","0"),
+                    listOf("Q","W","E","R","T","Y","U","I","O","P"),
+                    listOf("A","S","D","F","G","H","J","K","L"),
+                    listOf("SHIFT","Z","X","C","V","B","N","M","ENTER"),
+                    listOf("{","}","[","]","(",")",";",":","="),
+                    listOf(",","SPACE",".","/","\\","-","+"),
+                    listOf("↑","↓","←","→","HOME","END")
+                )
+                2 -> listOf(
+                    listOf("ESC","F1","F2","F3","F4","F5","F6"),
+                    listOf("F7","F8","F9","F10","F11","F12","PRT"),
+                    listOf("1","2","3","4","5","6","7","8","9","0","-","=","⌫"),
+                    listOf("TAB","Q","W","E","R","T","Y","U","I","O","P","[","]","\\"),
+                    listOf("CTRL","A","S","D","F","G","H","J","K","L",";","'","ENTER"),
+                    listOf("SHIFT","Z","X","C","V","B","N","M",",",".","/","SHIFT"),
+                    listOf("ALT","SPACE","CTRL","←","↑","↓","→"),
+                    listOf("HOME","END","PG↑","PG↓","INS","DEL")
+                )
+                else -> listOf(
+                    listOf("1","2","3","4","5","6","7","8","9","0"),
+                    listOf("Q","W","E","R","T","Y","U","I","O","P"),
+                    listOf("A","S","D","F","G","H","J","K","L"),
+                    listOf("SHIFT","Z","X","C","V","B","N","M","⌫"),
+                    listOf("?123",",","SPACE",".","ENTER")
+                )
+            }
+            rows.forEach { keyRow(it) }
+            updateModifierLabels()
+        }
+        rebuildKeyboardRows()
         root.addView(keyboardPanel, FrameLayout.LayoutParams(-1, dp(keyboardHeightDp), Gravity.BOTTOM).apply {
             leftMargin = dp(7); rightMargin = dp(7); bottomMargin = dp(12)
         })
