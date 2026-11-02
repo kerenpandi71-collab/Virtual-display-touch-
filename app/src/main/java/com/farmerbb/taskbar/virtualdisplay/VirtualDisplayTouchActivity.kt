@@ -1916,6 +1916,34 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             densityDpi = targetDpi,
             outputSurface = surface
         )
+        Handler(Looper.getMainLooper()).postDelayed({ showDexLauncherOnVirtualDisplay() }, 1800L)
+    }
+
+    private fun showDexLauncherOnVirtualDisplay() {
+        val id = virtualDisplayController?.displayId ?: return
+        val display = (getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).getDisplay(id)
+        if (display == null) {
+            status.text = "Launcher belum bisa ditampilkan: display virtual belum siap."
+            appendRuntimeLog("Launcher: display $id belum tersedia.")
+            return
+        }
+        runCatching { recentAppsPresentation?.dismiss() }
+        recentAppsPresentation = DexLauncherPresentation(this, display) { component ->
+            Thread({
+                val result = shizukuBridge.launchAppOnDisplay(id, component)
+                runOnUiThread {
+                    status.text = result
+                    appendRuntimeLog("Launcher • $result")
+                }
+            }, "SakuDesktopLaunchApp").start()
+        }.also { presentation ->
+            runCatching { presentation.show() }.onFailure { error ->
+                status.text = "Launcher gagal ditampilkan: ${error.message ?: error.javaClass.simpleName}"
+                appendRuntimeLog(status.text.toString())
+            }
+        }
+        status.text = "Launcher Saku Desktop tampil di virtual display $id."
+        appendRuntimeLog("Launcher DeX-style aktif pada virtual display $id.")
     }
 
     private fun appendRuntimeLog(message: String) {
