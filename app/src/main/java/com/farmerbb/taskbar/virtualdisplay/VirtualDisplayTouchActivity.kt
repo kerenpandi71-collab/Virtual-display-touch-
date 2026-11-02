@@ -636,8 +636,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                                     if (overlay == null || (virtualDisplayController?.displayId ?: -1) < 0) {
                                         status.text = "Aktifkan virtual display dahulu."
                                     } else {
-                                        val ids = arrayOf("stick", "attack", "skill1", "skill2", "skill3", "ult", "spell")
-                                        val labels = arrayOf("Analog / Gerak", "Attack", "Skill 1", "Skill 2", "Skill 3", "Ultimate", "Spell")
+                                        val ids = arrayOf("stick", "attack", "skill1", "skill2", "skill3", "ult", "spell", "recall", "regen")
+                                        val labels = arrayOf("Analog / Gerak", "Attack", "Skill 1", "Skill 2", "Skill 3", "Ultimate", "Spell", "Recall", "Regen")
                                         AlertDialog.Builder(this).setTitle("Pilih kontrol untuk dipetakan")
                                             .setItems(labels) { _, which ->
                                                 overlay.visibility = View.VISIBLE
