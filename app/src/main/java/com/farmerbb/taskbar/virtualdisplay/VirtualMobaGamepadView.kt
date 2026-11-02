@@ -214,7 +214,7 @@ internal class VirtualMobaGamepadView(
                 } else {
                     active[id] = c
                     activePositions[id] = event.getX(index) to event.getY(index)
-                    if (c.id == "skill2") {
+                    if (isAimSkill(c.id)) {
                         val size = targetSize()
                         aimPositions[id] = c.targetX * size.first to c.targetY * size.second
                     }
@@ -271,8 +271,15 @@ internal class VirtualMobaGamepadView(
             val control = active[id] ?: continue
             val x = if (historyIndex == null) event.getX(i) else event.getHistoricalX(i, historyIndex)
             val y = if (historyIndex == null) event.getY(i) else event.getHistoricalY(i, historyIndex)
-            if (control.id == "stick") activePositions[id] = x to y
-            if (control.id == "skill2") {
+            if (control.id == "stick") {
+                val dx = x - control.x * width
+                val dy = y - control.y * height
+                val radius = control.radius * minOf(width, height) * .66f
+                val distance = hypot(dx, dy)
+                val factor = if (distance > radius && distance > 0f) radius / distance else 1f
+                activePositions[id] = control.x * width + dx * factor to control.y * height + dy * factor
+            }
+            if (isAimSkill(control.id)) {
                 val size = targetSize()
                 val rawDx = x - control.x * width
                 val rawDy = y - control.y * height
@@ -287,6 +294,8 @@ internal class VirtualMobaGamepadView(
             }
         }
     }
+
+    private fun isAimSkill(id: String): Boolean = id == "skill1" || id == "skill2" || id == "skill3" || id == "spell"
 
     private fun inject(event: MotionEvent, historyIndex: Int? = null) {
         val display = controller() ?: return
@@ -310,7 +319,7 @@ internal class VirtualMobaGamepadView(
                 val factor = if (distance > radius && distance > 0f) radius / distance else 1f
                 tx = control.targetX * targetW + dx * factor / width * targetW
                 ty = control.targetY * targetH + dy * factor / height * targetH
-            } else if (control?.id == "skill2") {
+            } else if (control != null && isAimSkill(control.id)) {
                 val aim = aimPositions[id]
                 tx = aim?.first ?: control.targetX * targetW
                 ty = aim?.second ?: control.targetY * targetH
