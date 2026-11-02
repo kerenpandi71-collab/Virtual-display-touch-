@@ -1781,7 +1781,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         keyView.scaleX = 1.08f
                         keyView.scaleY = 1.08f
                         (keyView.background as? GradientDrawable)?.setColor(pressedColor)
-                        keyView.setTextColor(pressedTextColor)
+                        (keyView as? TextView)?.setTextColor(pressedTextColor)
                         if (repeatable) {
                             repeating = true
                             action()
@@ -1805,7 +1805,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         keyView.scaleX = 1f
                         keyView.scaleY = 1f
                         (keyView.background as? GradientDrawable)?.setColor(normalColor)
-                        keyView.setTextColor(normalTextColor)
+                        (keyView as? TextView)?.setTextColor(normalTextColor)
                         if (!repeatable && event.actionMasked == MotionEvent.ACTION_UP) action()
                         true
                     }
