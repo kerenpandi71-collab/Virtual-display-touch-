@@ -1771,24 +1771,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             stateListAnimator = null
             val normalColor = if (utility) Color.rgb(82, 96, 116) else Color.rgb(225, 230, 237)
             val pressedColor = Color.rgb(91, 178, 235)
-            val previewLabel = if (label == "SPACE") "spasi" else label
-            val previewText = TextView(this@VirtualDisplayTouchActivity).apply {
-                text = previewLabel
-                textSize = 25f
-                gravity = Gravity.CENTER
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(Color.WHITE)
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(12).toFloat()
-                    setColor(Color.rgb(48, 64, 86))
-                    setStroke(dp(1), Color.rgb(112, 211, 255))
-                }
-                elevation = dp(14).toFloat()
-                setPadding(dp(12), dp(5), dp(12), dp(5))
-            }
-            val previewPopup = android.widget.PopupWindow(
-                previewText, dp(if (label == "SPACE") 86 else 58), dp(54), false
-            ).apply { isTouchable = false; isOutsideTouchable = false }
+            val normalTextColor = if (utility) Color.rgb(242, 245, 250) else Color.rgb(31, 36, 44)
+            val pressedTextColor = Color.WHITE
             var repeatTask: Runnable? = null
             var repeating = false
             setOnTouchListener { keyView, event ->
@@ -1797,11 +1781,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         keyView.scaleX = 1.08f
                         keyView.scaleY = 1.08f
                         (keyView.background as? GradientDrawable)?.setColor(pressedColor)
-                        if (keyView.isAttachedToWindow) {
-                            runCatching {
-                                previewPopup.showAsDropDown(keyView, (keyView.width - previewPopup.width) / 2, -keyView.height - dp(48))
-                            }
-                        }
+                        keyView.setTextColor(pressedTextColor)
                         if (repeatable) {
                             repeating = true
                             action()
@@ -1822,10 +1802,10 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         repeating = false
                         repeatTask?.let(keyboardRepeatHandler::removeCallbacks)
                         repeatTask = null
-                        runCatching { if (previewPopup.isShowing) previewPopup.dismiss() }
                         keyView.scaleX = 1f
                         keyView.scaleY = 1f
                         (keyView.background as? GradientDrawable)?.setColor(normalColor)
+                        keyView.setTextColor(normalTextColor)
                         if (!repeatable && event.actionMasked == MotionEvent.ACTION_UP) action()
                         true
                     }
