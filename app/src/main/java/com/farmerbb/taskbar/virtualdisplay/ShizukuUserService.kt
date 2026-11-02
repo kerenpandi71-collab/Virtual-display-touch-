@@ -898,6 +898,28 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         }
     }
 
+    override fun launchAppOnDisplay(displayId: Int, component: String): String {
+        return try {
+            if (displayId !in 0..10000) return "Display ID tidak valid."
+            if (!component.matches(Regex("""[A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+"""))) {
+                return "Komponen aplikasi tidak valid."
+            }
+            val command = "am start --display $displayId -n $component"
+            val result = runShizukuShell(command, timeoutMs = 8000L, maxCharacters = 700)
+            val output = result.second
+            val success = result.first == 0 && !output.contains("Error:", true) &&
+                !output.contains("Exception", true) && !output.contains("does not exist", true)
+            lastError = if (success) "Permintaan buka aplikasi dikirim ke display $displayId: $component" else
+                "Gagal membuka aplikasi pada display $displayId • exit=${result.first} • $output"
+            Log.i(TAG, lastError)
+            lastError
+        } catch (error: Throwable) {
+            lastError = "Launch aplikasi gagal: ${error.javaClass.simpleName}: ${error.message ?: "tanpa detail"}"
+            Log.w(TAG, lastError, error)
+            lastError
+        }
+    }
+
     override fun getLastError(): String = lastError
 
     override fun destroy() {
