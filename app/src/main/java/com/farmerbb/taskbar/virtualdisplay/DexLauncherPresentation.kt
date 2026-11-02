@@ -47,20 +47,74 @@ class DexLauncherPresentation(context: Context, display: Display, private val la
         root.addView(TextView(context).apply {
             text = "Aplikasi"; textSize = 16f; setTextColor(ink); setPadding(0, dp(12), 0, dp(8))
         })
+        val search = android.widget.EditText(context).apply {
+            hint = "Cari aplikasi..."
+            setSingleLine(true)
+            textSize = 14f
+            setTextColor(ink)
+            setHintTextColor(muted)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            background = rounded(Color.argb(150, 220, 235, 255), 14)
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+        }
+        root.addView(search, LinearLayout.LayoutParams(-1, dp(44)).apply {
+            topMargin = dp(4)
+            bottomMargin = dp(8)
+        })
+
         val scroll = ScrollView(context)
-        val grid = GridLayout(context).apply { columnCount = 6; useDefaultMargins = true; alignmentMode = GridLayout.ALIGN_BOUNDS }
+        val grid = GridLayout(context).apply {
+            columnCount = when {
+                resources.displayMetrics.widthPixels / resources.displayMetrics.density >= 1100 -> 8
+                resources.displayMetrics.widthPixels / resources.displayMetrics.density >= 760 -> 6
+                else -> 4
+            }
+            useDefaultMargins = true
+            alignmentMode = GridLayout.ALIGN_BOUNDS
+        }
         val pm = context.packageManager
-        val intent = android.content.Intent(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_LAUNCHER)
-        pm.queryIntentActivities(intent, 0)
+        val launcherIntent = android.content.Intent(android.content.Intent.ACTION_MAIN)
+            .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+        val apps = pm.queryIntentActivities(launcherIntent, 0)
             .filter { it.activityInfo.packageName != context.packageName }
             .sortedBy { it.loadLabel(pm).toString().lowercase() }
-            .take(72).forEach { info ->
+        fun renderApps(query: String) {
+            grid.removeAllViews()
+            val filtered = apps.filter {
+                it.loadLabel(pm).toString().contains(query, ignoreCase = true) ||
+                    it.activityInfo.packageName.contains(query, ignoreCase = true)
+            }
+            filtered.take(120).forEach { info ->
                 grid.addView(appTile(info, pm), GridLayout.LayoutParams().apply {
-                    width = 0; height = dp(100)
+                    width = 0
+                    height = dp(104)
                     columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
                     setMargins(dp(5), dp(4), dp(5), dp(4))
                 })
             }
+            if (filtered.isEmpty()) {
+                grid.addView(TextView(context).apply {
+                    text = "Aplikasi tidak ditemukan"
+                    textSize = 14f
+                    setTextColor(muted)
+                    gravity = Gravity.CENTER
+                    setPadding(dp(16), dp(24), dp(16), dp(24))
+                }, GridLayout.LayoutParams().apply {
+                    width = -1
+                    height = dp(80)
+                    columnSpec = GridLayout.spec(0, grid.columnCount)
+                })
+            }
+        }
+        renderApps("")
+        search.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                renderApps(s?.toString().orEmpty().trim())
+                scroll.scrollTo(0, 0)
+            }
+            override fun afterTextChanged(s: android.text.Editable?) = Unit
+        })
         scroll.addView(grid)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         val taskbar = LinearLayout(context).apply {
