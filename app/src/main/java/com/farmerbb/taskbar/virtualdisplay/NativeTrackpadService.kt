@@ -34,6 +34,8 @@ class NativeTrackpadService : Service() {
     private var lastCentroidX = 0f
     private var sensitivity = 1.8f
     private var multiFinger = false
+    @Volatile private var shizukuConnected = false
+    private var trackpadLabel: TextView? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -49,7 +51,12 @@ class NativeTrackpadService : Service() {
         cursorX = screenWidth / 2f
         cursorY = screenHeight / 2f
         bridge.connect { connected ->
-            if (!connected) Log.w(TAG, "Shizuku belum siap untuk Native Trackpad")
+            shizukuConnected = connected
+            Log.i(TAG, if (connected) "Shizuku siap untuk Native Trackpad" else "Shizuku belum siap untuk Native Trackpad")
+            trackpadLabel?.post {
+                trackpadLabel?.text = if (connected) "SAKU TRACKPAD • SIAP" else "SHIZUKU BELUM SIAP"
+                trackpadLabel?.alpha = if (connected) 0.58f else 0.9f
+            }
         }
         showTrackpad()
     }
@@ -57,7 +64,7 @@ class NativeTrackpadService : Service() {
     private fun showTrackpad() {
         if (pad != null) return
         val label = TextView(this).apply {
-            text = "SAKU TRACKPAD"
+            text = if (shizukuConnected) "SAKU TRACKPAD • SIAP" else "MENGHUBUNGKAN SHIZUKU..."
             textSize = 11f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
@@ -69,6 +76,7 @@ class NativeTrackpadService : Service() {
             }
             setOnTouchListener { _, event -> handleTrackpad(event) }
         }
+        trackpadLabel = label
         val type = if (android.os.Build.VERSION.SDK_INT >= 26) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
@@ -93,6 +101,7 @@ class NativeTrackpadService : Service() {
     }
 
     private fun handleTrackpad(event: MotionEvent): Boolean {
+        if (!shizukuConnected) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 multiFinger = false
@@ -161,6 +170,7 @@ class NativeTrackpadService : Service() {
     override fun onDestroy() {
         runCatching { pad?.let { windowManager?.removeView(it) } }
         pad = null
+        trackpadLabel = null
         if (::bridge.isInitialized) bridge.closeConnectionOnly()
         super.onDestroy()
     }
