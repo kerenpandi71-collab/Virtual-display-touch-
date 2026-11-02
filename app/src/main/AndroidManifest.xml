@@ -18,6 +18,12 @@
             android:exported="true"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         <activity
+            android:name="com.farmerbb.taskbar.virtualdisplay.DexLauncherActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:screenOrientation="unspecified" />
+        <activity
             android:name="com.farmerbb.taskbar.virtualdisplay.VirtualDisplayTouchActivity"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true"
