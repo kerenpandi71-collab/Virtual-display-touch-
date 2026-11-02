@@ -390,11 +390,6 @@ class ShizukuBridge(
 
     override fun close() {
         releaseVirtualDisplay()
-        closeConnectionOnly()
-    }
-
-    /** Disconnect this client without releasing a virtual display owned by another client. */
-    fun closeConnectionOnly() {
         wantsConnection = false
         val wasBound = binding || remote != null
         remote = null
