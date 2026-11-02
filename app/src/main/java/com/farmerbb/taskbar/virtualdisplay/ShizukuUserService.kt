@@ -318,7 +318,8 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 0
             )
             setDisplayIdMethod.invoke(event, displayId)
-            val accepted = injectInputEventMethod.invoke(inputManagerService, event, INJECT_WAIT_FOR_RESULT) as? Boolean ?: false
+            val injectionMode = if (masked == MotionEvent.ACTION_MOVE) INJECT_ASYNC else INJECT_WAIT_FOR_RESULT
+            val accepted = injectInputEventMethod.invoke(inputManagerService, event, injectionMode) as? Boolean ?: false
             lastError = if (accepted) "MULTITOUCH accepted • display=$displayId • pointers=${sortedIds.size} • action=$sortedAction" else "MULTITOUCH rejected • display=$displayId • pointers=${sortedIds.size} • action=$sortedAction"
             if (!accepted) Log.w(TAG, lastError)
             return accepted
@@ -363,7 +364,8 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0
             )
             setDisplayIdMethod.invoke(event, displayId)
-            val accepted = injectInputEventMethod.invoke(inputManagerService, event, INJECT_WAIT_FOR_RESULT) as? Boolean ?: false
+            val injectionMode = if (action == MotionEvent.ACTION_MOVE) INJECT_ASYNC else INJECT_WAIT_FOR_RESULT
+            val accepted = injectInputEventMethod.invoke(inputManagerService, event, injectionMode) as? Boolean ?: false
             lastError = if (accepted) "TOUCH accepted • display=$displayId • action=$action • x=${point.first} y=${point.second}"
                 else "TOUCH rejected • display=$displayId • action=$action • x=${point.first} y=${point.second}"
             if (!accepted) Log.w(TAG, lastError)
