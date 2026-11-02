@@ -335,6 +335,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             }, "SakuDisplayDiagnostics").start()
         }, LinearLayout.LayoutParams(0, dp(34), 0.5f))
         actions.addView(actionButton("Tutup") {
+            runCatching { recentAppsPresentation?.dismiss() }
+            recentAppsPresentation = null
             virtualDisplayController?.close()
             virtualDisplayController = null
             clearPreview()
@@ -1884,6 +1886,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         if (dragActive) virtualDisplayController?.injectMouseButton(MotionEvent.ACTION_UP, cursorX, cursorY)
         mouseInputExecutor.shutdownNow()
         keyboardInputExecutor.shutdownNow()
+        runCatching { recentAppsPresentation?.dismiss() }
+        recentAppsPresentation = null
         virtualDisplayController?.close()
         virtualDisplayController = null
         clearPreview()
