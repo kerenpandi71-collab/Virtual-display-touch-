@@ -967,25 +967,39 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
                 val base = super.onCreateInputConnection(outAttrs) ?: return null
                 return object : InputConnectionWrapper(base, false) {
-                    // Keep intermediate Gboard composition on the host proxy. Some IMEs
-                    // finalize a word with finishComposingText rather than commitText, so
-                    // retain the latest composing value and flush it exactly once.
+                    // Mirror Gboard's composing buffer to the virtual display immediately.
+                    // Waiting only for commitText/finishComposingText loses input on IMEs that
+                    // keep a composing region active while the user continues typing.
                     private var pendingComposition = ""
 
                     override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
-                        pendingComposition = text?.toString().orEmpty()
+                        val next = text?.toString().orEmpty()
+                        val previous = pendingComposition
+                        when {
+                            next == previous -> Unit
+                            next.startsWith(previous) -> sendImeBridgeText(next.substring(previous.length))
+                            previous.startsWith(next) -> sendImeBridgeDelete(previous.length - next.length)
+                            else -> {
+                                if (previous.isNotEmpty()) sendImeBridgeDelete(previous.length)
+                                if (next.isNotEmpty()) sendImeBridgeText(next)
+                            }
+                        }
+                        pendingComposition = next
                         return super.setComposingText(text, newCursorPosition)
                     }
 
                     override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
                         val committed = text?.toString().orEmpty()
-                        if (committed.isNotEmpty()) sendImeBridgeText(committed)
+                        if (committed != pendingComposition) {
+                            if (pendingComposition.isNotEmpty()) sendImeBridgeDelete(pendingComposition.length)
+                            if (committed.isNotEmpty()) sendImeBridgeText(committed)
+                        }
                         pendingComposition = ""
                         return super.commitText(text, newCursorPosition)
                     }
 
                     override fun finishComposingText(): Boolean {
-                        pendingComposition.takeIf { it.isNotEmpty() }?.let(::sendImeBridgeText)
+                        // Composing characters were already mirrored by setComposingText().
                         pendingComposition = ""
                         return super.finishComposingText()
                     }
