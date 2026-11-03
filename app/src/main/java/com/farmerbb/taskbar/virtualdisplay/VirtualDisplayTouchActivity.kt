@@ -541,50 +541,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 }
                 MotionEvent.ACTION_UP -> {
                     if (!ballDragged) {
-                        val menu = android.widget.PopupMenu(this, view)
-                        menu.menu.add(0, 1, 0, "Pengaturan Cyber Deck")
-                        menu.menu.add(0, 2, 1, if (systemKeyboardRequested) "Sembunyikan Keyboard Android" else "Keyboard Android")
-                        menu.menu.add(0, 3, 2, "Keyboard Custom")
-                        menu.menu.add(0, 4, 3, if (keyboardPanelVisible) "Sembunyikan Keyboard Custom" else "Tampilkan Keyboard Custom")
-                        val launcherPrefs = getSharedPreferences("saku_desktop_launcher", Context.MODE_PRIVATE)
-                        val launcherEnabled = launcherPrefs.getBoolean("enabled", true)
-                        menu.menu.add(0, 5, 4, "Buka Saku Desktop Launcher").isEnabled = launcherEnabled
-                        menu.menu.add(0, 6, 5, "Launcher bawaan VDT aktif").apply {
-                            isCheckable = true
-                            isChecked = launcherEnabled
-                        }
-                        menu.menu.add(0, 7, 6, "◀ Back")
-                        menu.menu.add(0, 8, 7, "⌂ Home")
-                        menu.menu.add(0, 9, 8, "▢ Recent")
-                        menu.setOnMenuItemClickListener { item ->
-                            when (item.itemId) {
-                                1 -> topBar.visibility = View.VISIBLE
-                                2 -> toggleSystemKeyboardBridge()
-                                3 -> showVirtualKeyboard()
-                                4 -> {
-                                    if (keyboardPanelVisible) {
-                                        keyboardPanelVisible = false
-                                        keyboardPanel.visibility = View.GONE
-                                        updateDesktopLayout(root.width, root.height)
-                                    } else {
-                                        showVirtualKeyboard()
-                                    }
-                                }
-                                5 -> showDexLauncherOnVirtualDisplay()
-                                6 -> {
-                                    val enabled = !launcherPrefs.getBoolean("enabled", true)
-                                    launcherPrefs.edit().putBoolean("enabled", enabled).apply()
-                                    appendRuntimeLog(if (enabled) "Launcher bawaan VDT diaktifkan." else "Launcher bawaan VDT dinonaktifkan.")
-                                    status.text = if (enabled) "Launcher bawaan VDT aktif. Buka dari bola asisten bila diperlukan." else "Launcher bawaan VDT nonaktif; launcher eksternal dapat digunakan."
-                                    if (!enabled) sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_HOME)
-                                }
-                                7 -> sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_BACK)
-                                8 -> sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_HOME)
-                                9 -> showVirtualDisplayRecentTasks()
-                            }
-                            true
-                        }
-                        menu.show()
+                        topBar.visibility = if (topBar.visibility == View.VISIBLE) View.GONE else View.VISIBLE
                     }
                     true
                 }
@@ -1315,17 +1272,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             return
         }
 
-        // When the built-in launcher is enabled, Home means return to its app
-        // grid rather than sending the system HOME key (which may be ignored by
-        // secondary-display policy on some Android builds).
-        if (keyCode == android.view.KeyEvent.KEYCODE_HOME &&
-            getSharedPreferences("saku_desktop_launcher", Context.MODE_PRIVATE)
-                .getBoolean("enabled", true)) {
-            showDexLauncherOnVirtualDisplay()
-            return
-        }
-        // Back and system Home (when the built-in launcher is disabled) use
-        // InputManager injection with the virtual display ID.
         sendVirtualKey(keyCode)
     }
 
@@ -1923,36 +1869,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             densityDpi = targetDpi,
             outputSurface = surface
         )
-        Handler(Looper.getMainLooper()).postDelayed({
-            if (getSharedPreferences("saku_desktop_launcher", Context.MODE_PRIVATE)
-                    .getBoolean("enabled", true)) {
-                showDexLauncherOnVirtualDisplay()
-            } else {
-                appendRuntimeLog("Auto-launch dilewati: launcher bawaan VDT dinonaktifkan.")
-            }
-        }, 1800L)
-    }
 
-    private fun showDexLauncherOnVirtualDisplay() {
-        if (!getSharedPreferences("saku_desktop_launcher", Context.MODE_PRIVATE)
-                .getBoolean("enabled", true)) {
-            status.text = "Launcher bawaan VDT sedang nonaktif."
-            return
-        }
-        val id = virtualDisplayController?.displayId ?: -1
-        if (id < 0) {
-            status.text = "Mulai virtual display dahulu sebelum membuka launcher."
-            return
-        }
-        val component = "$packageName/com.farmerbb.taskbar.virtualdisplay.DexLauncherActivity"
-        status.text = "Membuka Saku Desktop pada virtual display $id…"
-        keyboardInputExecutor.execute {
-            val result = shizukuBridge.launchAppOnDisplay(id, component)
-            runOnUiThread {
-                status.text = result
-                appendRuntimeLog("Launcher Saku Desktop • $result")
-            }
-        }
     }
 
     private fun appendRuntimeLog(message: String) {
