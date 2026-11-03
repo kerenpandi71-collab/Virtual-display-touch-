@@ -1659,6 +1659,11 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 setStroke(dp(1), if (utility) Color.rgb(105, 119, 139) else Color.rgb(208, 215, 225))
             }
             minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
+            // These overlay keys must never take window focus away from the hidden
+            // IME proxy EditText. Otherwise Gboard loses its InputConnection as soon
+            // as the user taps a custom key, and subsequent typing stops reaching VDT.
+            isFocusable = false
+            isFocusableInTouchMode = false
             setPadding(dp(2), 0, dp(2), 0)
             stateListAnimator = null
             val normalColor = if (utility) Color.rgb(82, 96, 116) else Color.rgb(225, 230, 237)
