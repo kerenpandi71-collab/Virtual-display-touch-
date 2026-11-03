@@ -727,6 +727,64 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }, LinearLayout.LayoutParams(dp(32), dp(27)))
         keyboardPanel.addView(keyboardTitle)
 
+        // Restore the original Cyberdeck custom keyboard rows and symbol/shift behavior.
+        fun keyRow(labels: List<String>, weights: List<Float> = labels.map { 1f }) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+            }
+            labels.forEachIndexed { index, label ->
+                val utility = label in setOf("SHIFT", "⌫", "?123", "ENTER")
+                val button = cyberKey(
+                    label,
+                    utility,
+                    repeatable = label == "⌫" || (label.length == 1 && label != "," && label != ".")
+                ) {
+                    when (label) {
+                        "?123" -> {
+                            cyberSymbols = !cyberSymbols
+                            refreshCyberdeckLabels()
+                        }
+                        "SHIFT" -> {
+                            cyberShift = !cyberShift
+                            updateModifierLabels()
+                        }
+                        "SPACE" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_SPACE)
+                        "," -> sendTypedText(if (cyberSymbols) ";" else ",")
+                        "." -> sendTypedText(if (cyberSymbols) ":" else ".")
+                        "⌫" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DEL)
+                        "ENTER" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_ENTER)
+                        else -> {
+                            val key = if (cyberSymbols) symbolForCyberdeckKey(label) else label.lowercase()
+                            val printable = if (cyberShift && !cyberSymbols) key.uppercase() else key
+                            sendTypedText(printable)
+                            if (cyberShift && !cyberSymbols && printable.any { it.isLetter() }) {
+                                cyberShift = false
+                                updateModifierLabels()
+                            }
+                        }
+                    }
+                }
+                button.tag = label
+                row.addView(button, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, weights[index]).apply {
+                    setMargins(dp(2), dp(3), dp(2), dp(3))
+                })
+            }
+            keyboardPanel.addView(row, LinearLayout.LayoutParams(-1, 0, 1f))
+        }
+
+        keyRow(listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"))
+        keyRow(listOf("Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"))
+        keyRow(listOf("A", "S", "D", "F", "G", "H", "J", "K", "L"))
+        keyRow(
+            listOf("SHIFT", "Z", "X", "C", "V", "B", "N", "M", "⌫"),
+            listOf(1.55f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1.55f)
+        )
+        keyRow(
+            listOf("?123", ",", "SPACE", ".", "ENTER"),
+            listOf(1.45f, 0.8f, 3.6f, 0.8f, 1.5f)
+        )
+
         bottomPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(7), dp(4), dp(7), dp(7))
