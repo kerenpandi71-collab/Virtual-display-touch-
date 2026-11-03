@@ -1088,6 +1088,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         setContentView(root)
     }
 
+    }
+
     private fun roundedPanel(alpha: Int, radius: Int) = GradientDrawable().apply {
         setOrientation(GradientDrawable.Orientation.TL_BR)
         setColors(intArrayOf(
