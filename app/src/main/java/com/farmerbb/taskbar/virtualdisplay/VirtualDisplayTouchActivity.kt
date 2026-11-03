@@ -562,9 +562,13 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                                 2 -> toggleSystemKeyboardBridge()
                                 3 -> showVirtualKeyboard()
                                 4 -> {
-                                    keyboardPanelVisible = !keyboardPanelVisible
-                                    keyboardPanel.visibility = if (keyboardPanelVisible) View.VISIBLE else View.GONE
-                                    updateDesktopLayout(root.width, root.height)
+                                    if (keyboardPanelVisible) {
+                                        keyboardPanelVisible = false
+                                        keyboardPanel.visibility = View.GONE
+                                        updateDesktopLayout(root.width, root.height)
+                                    } else {
+                                        showVirtualKeyboard()
+                                    }
                                 }
                                 5 -> showDexLauncherOnVirtualDisplay()
                                 6 -> {
@@ -784,6 +788,20 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             listOf("?123", ",", "SPACE", ".", "ENTER"),
             listOf(1.45f, 0.8f, 3.6f, 0.8f, 1.5f)
         )
+
+        // Attach the keyboard overlay to the activity root. Previously the panel
+        // was built but never added to the view hierarchy, so it could not appear.
+        keyboardPanel.visibility = View.GONE
+        root.addView(
+            keyboardPanel,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                dp(keyboardHeightDp),
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            )
+        )
+        keyboardPanel.bringToFront()
+        assistantBall.bringToFront()
 
         bottomPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1453,10 +1471,29 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
 
     private fun showVirtualKeyboard() {
+        if (!::keyboardPanel.isInitialized) {
+            status.text = "Keyboard custom belum siap dibuat."
+            appendRuntimeLog("Gagal menampilkan keyboard: keyboardPanel belum diinisialisasi.")
+            return
+        }
         keyboardPanelVisible = true
         keyboardPanel.visibility = View.VISIBLE
-        updateDesktopLayout((preview?.parent as? View)?.width ?: 0, (preview?.parent as? View)?.height ?: 0)
-        status.text = "Keyboard Cyberdeck aktif • terpisah dari preview dan trackpad."
+        keyboardPanel.bringToFront()
+        assistantBallView?.bringToFront()
+        val parent = keyboardPanel.parent as? View
+        val width = parent?.width ?: 0
+        val height = parent?.height ?: 0
+        if (width > 0 && height > 0) {
+            updateDesktopLayout(width, height)
+        } else {
+            keyboardPanel.post {
+                val w = (keyboardPanel.parent as? View)?.width ?: 0
+                val h = (keyboardPanel.parent as? View)?.height ?: 0
+                if (w > 0 && h > 0) updateDesktopLayout(w, h)
+            }
+        }
+        status.text = "Keyboard custom Cyberdeck ditampilkan."
+        appendRuntimeLog("Keyboard custom diminta dari bola asisten; panel visible=${keyboardPanel.visibility == View.VISIBLE}.")
     }
 
     private fun toggleSystemKeyboardBridge() {
