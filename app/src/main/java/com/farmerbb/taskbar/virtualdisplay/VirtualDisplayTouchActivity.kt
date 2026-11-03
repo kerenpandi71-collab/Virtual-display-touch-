@@ -727,124 +727,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }, LinearLayout.LayoutParams(dp(32), dp(27)))
         keyboardPanel.addView(keyboardTitle)
 
-        // Keyboard sederhana bergaya Gboard: tombol besar, baris standar, tanpa tombol fungsi yang memenuhi ruang.
-        // Area preview, trackpad, dan jalur Direct Touch sengaja tidak diubah.
-        keyboardPanel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(5), dp(5), dp(5), dp(5))
-            background = roundedPanel(242, 16)
-            // Keep the keyboard above the bottom trackpad panel in both drawing
-            // and touch-dispatch order; otherwise the trackpad steals key taps.
-            elevation = dp(18).toFloat()
-            translationZ = dp(2).toFloat()
-            contentDescription = "Keyboard virtual sederhana"
-        }
-        val keyboardTitle = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val keyboardDragHandle = TextView(this).apply {
-            text = "Keyboard  ⋮⋮"
-            textSize = 12f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setTextColor(Color.rgb(225, 231, 239))
-            gravity = Gravity.CENTER_VERTICAL
-            setOnTouchListener { _, event ->
-                when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        val params = keyboardPanel.layoutParams as? FrameLayout.LayoutParams
-                        if (params != null) {
-                            val landscapeNow = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-                            if (landscapeNow) {
-                                keyboardLandscapeHasCustomPosition = true
-                                val maxX = (root.width - keyboardPanel.width).coerceAtLeast(1)
-                                val maxY = (root.height - keyboardPanel.height).coerceAtLeast(1)
-                                keyboardLandscapeXPercent = (keyboardPanel.left.toFloat() / maxX * 100).toInt().coerceIn(0, 100)
-                                keyboardLandscapeYPercent = (keyboardPanel.top.toFloat() / maxY * 100).toInt().coerceIn(0, 100)
-                            } else {
-                                keyboardHasCustomPosition = true
-                            }
-                            keyboardPositionX = keyboardPanel.x.toInt().coerceIn(0, (root.width - keyboardPanel.width).coerceAtLeast(0))
-                            keyboardPositionY = keyboardPanel.y.toInt().coerceIn(0, (root.height - keyboardPanel.height).coerceAtLeast(0))
-                            params.gravity = Gravity.TOP or Gravity.START
-                            params.leftMargin = keyboardPositionX
-                            params.topMargin = keyboardPositionY
-                            params.rightMargin = 0
-                            params.bottomMargin = 0
-                            keyboardPanel.layoutParams = params
-                            keyboardDragStartX = event.rawX
-                            keyboardDragStartY = event.rawY
-                            keyboardDragOriginX = keyboardPositionX
-                            keyboardDragOriginY = keyboardPositionY
-                        }
-                        true
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        val params = keyboardPanel.layoutParams as? FrameLayout.LayoutParams
-                        if (params != null) {
-                            keyboardPositionX = (keyboardDragOriginX + event.rawX - keyboardDragStartX).toInt()
-                                .coerceIn(0, (root.width - keyboardPanel.width).coerceAtLeast(0))
-                            keyboardPositionY = (keyboardDragOriginY + event.rawY - keyboardDragStartY).toInt()
-                                .coerceIn(0, (root.height - keyboardPanel.height).coerceAtLeast(0))
-                            params.gravity = Gravity.TOP or Gravity.START
-                            params.leftMargin = keyboardPositionX
-                            params.topMargin = keyboardPositionY
-                            params.rightMargin = 0
-                            params.bottomMargin = 0
-                            root.updateViewLayout(keyboardPanel, params)
-                        }
-                        true
-                    }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        val landscapeNow = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-                        if (landscapeNow) {
-                            val maxX = (root.width - keyboardPanel.width).coerceAtLeast(1)
-                            val maxY = (root.height - keyboardPanel.height).coerceAtLeast(1)
-                            keyboardLandscapeXPercent = (keyboardPositionX.toFloat() / maxX * 100).toInt().coerceIn(0, 100)
-                            keyboardLandscapeYPercent = (keyboardPositionY.toFloat() / maxY * 100).toInt().coerceIn(0, 100)
-                        }
-                        val keyboardPositionPrefs = getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE).edit()
-                        if (landscapeNow) {
-                            keyboardPositionPrefs.putBoolean("landscape_custom_position", true)
-                                .putInt("landscape_x_percent", keyboardLandscapeXPercent)
-                                .putInt("landscape_y_percent", keyboardLandscapeYPercent)
-                        } else {
-                            keyboardPositionPrefs.putBoolean("custom_position", true)
-                                .putInt("position_x", keyboardPositionX)
-                                .putInt("position_y", keyboardPositionY)
-                        }
-                        keyboardPositionPrefs.apply()
-                        true
-                    }
-                    else -> true
-                }
-            }
-        }
-        keyboardTitle.addView(keyboardDragHandle, LinearLayout.LayoutParams(0, dp(24), 1f))
-        keyboardTitle.addView(actionButton("W−") {
-            if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) keyboardLandscapeWidthPercent = (keyboardLandscapeWidthPercent - 5).coerceAtLeast(55) else keyboardWidthPercent = (keyboardWidthPercent - 5).coerceAtLeast(55)
-            persistKeyboardSize()
-            updateDesktopLayout(root.width, root.height)
-        }, LinearLayout.LayoutParams(dp(35), dp(27)))
-        keyboardTitle.addView(actionButton("W+") {
-            if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) keyboardLandscapeWidthPercent = (keyboardLandscapeWidthPercent + 5).coerceAtMost(100) else keyboardWidthPercent = (keyboardWidthPercent + 5).coerceAtMost(100)
-            persistKeyboardSize()
-            updateDesktopLayout(root.width, root.height)
-        }, LinearLayout.LayoutParams(dp(35), dp(27)))
-        keyboardTitle.addView(actionButton("H−") {
-            if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) keyboardLandscapeHeightDp = (keyboardLandscapeHeightDp - 15).coerceAtLeast(170) else keyboardHeightDp = (keyboardHeightDp - 15).coerceAtLeast(170)
-            persistKeyboardSize()
-            updateDesktopLayout(root.width, root.height)
-        }, LinearLayout.LayoutParams(dp(35), dp(27)))
-        keyboardTitle.addView(actionButton("H+") {
-            if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) keyboardLandscapeHeightDp = (keyboardLandscapeHeightDp + 15).coerceAtMost(360) else keyboardHeightDp = (keyboardHeightDp + 15).coerceAtMost(360)
-            persistKeyboardSize()
-            updateDesktopLayout(root.width, root.height)
-        }, LinearLayout.LayoutParams(dp(35), dp(27)))
-        keyboardTitle.addView(actionButton("×") {
-            keyboardPanelVisible = false
-            keyboardPanel.visibility = View.GONE
-
         bottomPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(7), dp(4), dp(7), dp(7))
@@ -1086,8 +968,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         imeBridgeEditText.visibility = View.VISIBLE
         root.addView(imeBridgeEditText, FrameLayout.LayoutParams(dp(1), dp(1), Gravity.TOP or Gravity.START))
         setContentView(root)
-    }
-
     }
 
     private fun roundedPanel(alpha: Int, radius: Int) = GradientDrawable().apply {
