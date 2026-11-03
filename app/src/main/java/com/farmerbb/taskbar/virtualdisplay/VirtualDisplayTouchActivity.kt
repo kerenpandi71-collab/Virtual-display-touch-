@@ -541,7 +541,35 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 }
                 MotionEvent.ACTION_UP -> {
                     if (!ballDragged) {
-                        topBar.visibility = if (topBar.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                        val menu = android.widget.PopupMenu(this, view)
+                        menu.menu.add(0, 1, 0, "Pengaturan Cyber Deck")
+                        menu.menu.add(0, 2, 1, if (systemKeyboardRequested) "Sembunyikan Keyboard Android" else "Keyboard Android")
+                        menu.menu.add(0, 3, 2, "Keyboard Custom")
+                        menu.menu.add(0, 4, 3, if (keyboardPanelVisible) "Sembunyikan Keyboard Custom" else "Tampilkan Keyboard Custom")
+                        menu.menu.add(0, 7, 4, "◀ Back")
+                        menu.menu.add(0, 8, 5, "⌂ Home")
+                        menu.menu.add(0, 9, 6, "▢ Recent")
+                        menu.setOnMenuItemClickListener { item ->
+                            when (item.itemId) {
+                                1 -> topBar.visibility = View.VISIBLE
+                                2 -> toggleSystemKeyboardBridge()
+                                3 -> showVirtualKeyboard()
+                                4 -> {
+                                    if (keyboardPanelVisible) {
+                                        keyboardPanelVisible = false
+                                        keyboardPanel.visibility = View.GONE
+                                        updateDesktopLayout(root.width, root.height)
+                                    } else {
+                                        showVirtualKeyboard()
+                                    }
+                                }
+                                7 -> sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_BACK)
+                                8 -> sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_HOME)
+                                9 -> showVirtualDisplayRecentTasks()
+                            }
+                            true
+                        }
+                        menu.show()
                     }
                     true
                 }
