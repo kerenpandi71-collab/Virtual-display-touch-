@@ -585,9 +585,10 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         menu.menu.add(0, 5, 4, if (gamepadVisible) "Sembunyikan gamepad" else "Tampilkan gamepad")
                         menu.menu.add(0, 6, 5, if (gamepadView.isEditing) "Selesai atur posisi gamepad" else "Atur posisi gamepad")
                         menu.menu.add(0, 10, 6, "Atur ukuran gamepad")
-                        menu.menu.add(0, 7, 7, "◀ Back")
-                        menu.menu.add(0, 8, 8, "⌂ Home")
-                        menu.menu.add(0, 9, 9, "▢ Recent")
+                        menu.menu.add(0, 11, 7, if (previewInputMode == 1) "Matikan Touch" else "Aktifkan Touch")
+                        menu.menu.add(0, 7, 8, "◀ Back")
+                        menu.menu.add(0, 8, 9, "⌂ Home")
+                        menu.menu.add(0, 9, 10, "▢ Recent")
                         menu.setOnMenuItemClickListener { item ->
                             when (item.itemId) {
                                 1 -> topBar.visibility = View.VISIBLE
@@ -605,6 +606,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                                 5 -> toggleGamepadVisibility()
                                 6 -> setGamepadEditMode(!gamepadView.isEditing)
                                 10 -> showGamepadSizeSettings()
+                                11 -> setPreviewInputMode(if (previewInputMode == 1) 2 else 1)
                                 7 -> sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_BACK)
                                 8 -> sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_HOME)
                                 9 -> showVirtualDisplayRecentTasks()
