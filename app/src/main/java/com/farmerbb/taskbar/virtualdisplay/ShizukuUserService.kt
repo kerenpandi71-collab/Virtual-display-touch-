@@ -60,7 +60,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
 
             // TRUSTED is required on this device path for InputManager to accept injected
             // touchscreen events on the virtual display. Do not remove it to solve IME focus:
-            // doing so causes Direct Touch and multi-pointer gestures to be rejected.
+            // doing so causes Touch input and multi-pointer gestures to be rejected.
             val flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION or
                 TRUSTED_FLAG or

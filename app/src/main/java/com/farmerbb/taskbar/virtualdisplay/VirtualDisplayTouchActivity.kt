@@ -108,6 +108,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var assistantBallPortraitYPercent = 50
     private var assistantBallLandscapeXPercent = 95
     private var assistantBallLandscapeYPercent = 50
+    private lateinit var gamepadView: VirtualMobaGamepadView
+    private var gamepadVisible = true
     @Volatile private var systemKeyboardRequested = false
     private var keyboardWidthPercent = 100
     private var keyboardHeightDp = 240
@@ -139,7 +141,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var keyboardLandscapeHeightDp = 240
     private var panelPositionPercent = 0
     private var directTouchDown = false
-    // 0 = trackpad on preview, 1 = direct touch, 2 = disabled
+    // 0 = trackpad on preview, 1 = Touch on preview, 2 = disabled
     private var previewInputMode = 1
     private val gestureHandler = Handler(Looper.getMainLooper())
     private var longPressTask: Runnable? = null
@@ -156,6 +158,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         strokeWidth = 2f
         color = Color.BLACK
     }
+    private val cursorPath = Path()
+    private var lastCursorScreenX = Float.NaN
+    private var lastCursorScreenY = Float.NaN
     private var cursorPulseRadius = 13f
     private var cursorX = targetWidth / 2f
     private var cursorY = targetHeight / 2f
@@ -188,6 +193,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val landscapeAtLaunch = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         val displayPrefs = getSharedPreferences("saku_desktop_resolution", Context.MODE_PRIVATE)
+        gamepadVisible = getSharedPreferences("virtual_display_gamepad", Context.MODE_PRIVATE)
+            .getBoolean("visible", true)
         val resolutionSuffix = if (landscapeAtLaunch) "landscape" else "portrait"
         targetWidth = displayPrefs.getInt("${resolutionSuffix}_width", 960).coerceIn(320, 2560)
         targetHeight = displayPrefs.getInt("${resolutionSuffix}_height", 820).coerceIn(320, 2560)
@@ -275,6 +282,34 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         root.addView(cursorOverlay, FrameLayout.LayoutParams(-1, -1))
         // Keep the existing overlay cursor visible; only its icon is changed to a mouse pointer.
+        gamepadView = VirtualMobaGamepadView(
+            context = this,
+            displayRect = {
+                val surface = preview
+                if (surface == null) android.graphics.RectF() else android.graphics.RectF(
+                    surface.left.toFloat(), surface.top.toFloat(),
+                    (surface.left + surface.width).toFloat(), (surface.top + surface.height).toFloat()
+                )
+            },
+            displaySize = { targetWidth to targetHeight },
+            emitTouchFrame = { action, pointerIds, xs, ys ->
+                val controller = virtualDisplayController
+                if (controller != null && controller.displayId >= 0) {
+                    enqueueDirectTouchFrame(
+                        DirectTouchFrame(
+                            controller, action, pointerIds, xs, ys,
+                            (action and MotionEvent.ACTION_MASK) == MotionEvent.ACTION_UP
+                        )
+                    )
+                } else {
+                    runOnUiThread { status.text = "Mulai virtual display dahulu sebelum memakai gamepad." }
+                }
+            },
+            onMessage = { message -> runOnUiThread { status.text = message } }
+        ).apply {
+            visibility = if (gamepadVisible) View.VISIBLE else View.GONE
+        }
+        root.addView(gamepadView, FrameLayout.LayoutParams(-1, -1))
 
         shizukuBridge = ShizukuBridge(this) { message ->
             runOnUiThread {
@@ -344,6 +379,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         actions.addView(actionButton("Tutup") {
             runCatching { recentAppsPresentation?.dismiss() }
             recentAppsPresentation = null
+            if (::gamepadView.isInitialized) gamepadView.cancelActive()
             virtualDisplayController?.close()
             virtualDisplayController = null
             clearPreview()
@@ -352,7 +388,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         runtimeLogToggle = actionButton("Log") { toggleRuntimeLog() }
         actions.addView(runtimeLogToggle, LinearLayout.LayoutParams(0, dp(34), 0.48f))
         panelToggleButton = actionButton("Panel") { toggleInputPanel() }
-        // Legacy trackpad panel removed; input uses Direct Touch on the screen.
+        // Legacy trackpad panel removed; input uses Touch on the screen.
         directTouchButton = actionButton("Touch: ON") { toggleDirectTouch() }
         actions.addView(directTouchButton, LinearLayout.LayoutParams(0, dp(34), 0.78f))
         topBar.addView(actions)
@@ -546,9 +582,12 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         menu.menu.add(0, 2, 1, if (systemKeyboardRequested) "Sembunyikan Keyboard Android" else "Keyboard Android")
                         menu.menu.add(0, 3, 2, "Keyboard Custom")
                         menu.menu.add(0, 4, 3, if (keyboardPanelVisible) "Sembunyikan Keyboard Custom" else "Tampilkan Keyboard Custom")
-                        menu.menu.add(0, 7, 4, "◀ Back")
-                        menu.menu.add(0, 8, 5, "⌂ Home")
-                        menu.menu.add(0, 9, 6, "▢ Recent")
+                        menu.menu.add(0, 5, 4, if (gamepadVisible) "Sembunyikan gamepad" else "Tampilkan gamepad")
+                        menu.menu.add(0, 6, 5, if (gamepadView.isEditing) "Selesai atur posisi gamepad" else "Atur posisi gamepad")
+                        menu.menu.add(0, 10, 6, "Atur ukuran gamepad")
+                        menu.menu.add(0, 7, 7, "◀ Back")
+                        menu.menu.add(0, 8, 8, "⌂ Home")
+                        menu.menu.add(0, 9, 9, "▢ Recent")
                         menu.setOnMenuItemClickListener { item ->
                             when (item.itemId) {
                                 1 -> topBar.visibility = View.VISIBLE
@@ -563,6 +602,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                                         showVirtualKeyboard()
                                     }
                                 }
+                                5 -> toggleGamepadVisibility()
+                                6 -> setGamepadEditMode(!gamepadView.isEditing)
+                                10 -> showGamepadSizeSettings()
                                 7 -> sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_BACK)
                                 8 -> sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_HOME)
                                 9 -> showVirtualDisplayRecentTasks()
@@ -596,7 +638,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             root.updateViewLayout(assistantBall, ballParams)
         }
         // Keyboard sederhana bergaya Gboard: tombol besar, baris standar, tanpa tombol fungsi yang memenuhi ruang.
-        // Area preview, trackpad, dan jalur Direct Touch sengaja tidak diubah.
+        // Area preview, trackpad, dan jalur Touch sengaja tidak diubah.
         keyboardPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(5), dp(5), dp(5), dp(5))
@@ -1326,6 +1368,64 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
     }
 
+    private fun toggleGamepadVisibility() {
+        gamepadVisible = !gamepadVisible
+        if (!gamepadVisible) {
+            gamepadView.cancelActive()
+            gamepadView.isEditing = false
+        }
+        gamepadView.visibility = if (gamepadVisible) View.VISIBLE else View.GONE
+        getSharedPreferences("virtual_display_gamepad", Context.MODE_PRIVATE).edit()
+            .putBoolean("visible", gamepadVisible).apply()
+        assistantBallView?.bringToFront()
+        status.text = if (gamepadVisible) "Gamepad ditampilkan • analog kiri, tombol aksi kanan." else "Gamepad disembunyikan • mode Touch tetap tersedia."
+    }
+
+    private fun setGamepadEditMode(enabled: Boolean) {
+        if (!gamepadVisible) {
+            status.text = "Tampilkan gamepad dahulu untuk mengatur posisinya."
+            return
+        }
+        gamepadView.cancelActive()
+        gamepadView.isEditing = enabled
+        status.text = if (enabled) "Atur posisi gamepad • seret analog atau tombol; posisi tersimpan otomatis." else "Posisi gamepad tersimpan."
+        assistantBallView?.bringToFront()
+    }
+
+    private fun showGamepadSizeSettings() {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(8), dp(22), dp(4))
+        }
+        val value = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            gravity = Gravity.CENTER
+        }
+        fun updateLabel(scale: Float) { value.text = "Ukuran gamepad ${(scale * 100).toInt()}%" }
+        panel.addView(value, LinearLayout.LayoutParams(-1, dp(38)))
+        panel.addView(SeekBar(this).apply {
+            max = 85
+            progress = ((gamepadView.sizeScale - .65f) * 100f).toInt().coerceIn(0, 85)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    val scale = .65f + progress / 100f
+                    gamepadView.setSizeScale(scale)
+                    updateLabel(scale)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+            })
+        }, LinearLayout.LayoutParams(-1, dp(44)))
+        updateLabel(gamepadView.sizeScale)
+        AlertDialog.Builder(this)
+            .setTitle("Ukuran tombol gamepad")
+            .setView(panel)
+            .setPositiveButton("Selesai", null)
+            .setNeutralButton("Reset") { _, _ -> gamepadView.setSizeScale(1f) }
+            .show()
+    }
+
     private fun toggleDirectTouch() {
         setPreviewInputMode((previewInputMode + 1) % 3)
     }
@@ -1334,7 +1434,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         previewInputMode = mode.coerceIn(0, 2)
         directTouchButton.text = when (previewInputMode) {
             0 -> "Trackpad"
-            1 -> "Direct"
+            1 -> "Touch"
             else -> "Touch: OFF"
         }
         preview?.isClickable = previewInputMode != 2
@@ -1347,7 +1447,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             1 -> {
                 bottomPanel.visibility = View.GONE
                 panelToggleButton.text = "Panel+"
-                status.text = "Direct Touch aktif • sentuhan diteruskan langsung ke desktop virtual."
+                status.text = "Touch aktif • sentuhan diteruskan langsung ke desktop virtual."
             }
             else -> {
                 status.text = "Input preview nonaktif • sentuhan pada preview diabaikan."
@@ -1359,7 +1459,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private fun handleDirectTouch(event: MotionEvent, width: Int, height: Int): Boolean {
         if (width <= 0 || height <= 0) return true
         if (event.pointerCount > 5) {
-            status.text = "Direct Touch mendukung maksimal 5 jari."
+            status.text = "Touch mendukung maksimal 5 jari."
             return true
         }
         val count = event.pointerCount
@@ -1371,7 +1471,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         cursorX = xs[0]
         cursorY = ys[0]
-        cursorOverlay?.invalidate()
+        invalidateCursorOverlay()
         val action = when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> MotionEvent.ACTION_DOWN
             MotionEvent.ACTION_POINTER_DOWN -> MotionEvent.ACTION_POINTER_DOWN or
@@ -1405,7 +1505,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     /**
-     * Keep Direct Touch transitions ordered, but collapse consecutive stale MOVE samples.
+     * Keep Touch transitions ordered, but collapse consecutive stale MOVE samples.
      * This prevents a slow Binder injection from building an unbounded queue of obsolete
      * coordinates while never dropping DOWN, POINTER_DOWN, POINTER_UP, UP or CANCEL.
      */
@@ -1440,9 +1540,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 if (!accepted) {
                     runOnUiThread {
                         appendRuntimeLog(
-                            "Direct Touch multi-jari gagal • action=${next.action} • ${shizukuBridge.getLastError()}"
+                            "Touch multi-jari gagal • action=${next.action} • ${shizukuBridge.getLastError()}"
                         )
-                        status.text = "Direct Touch gagal • periksa Log."
+                        status.text = "Touch gagal • periksa Log."
                     }
                 } else if (next.finalUp) {
                     runOnUiThread { pulseDextopCursor() }
@@ -1452,7 +1552,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     private fun toggleInputPanel() {
-        // Legacy trackpad panel is permanently disabled; use on-screen Direct Touch.
+        // Legacy trackpad panel is permanently disabled; use on-screen Touch.
         trackpadPanelEnabled = false
         if (::bottomPanel.isInitialized) bottomPanel.visibility = View.GONE
     }
@@ -1937,31 +2037,49 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val pointerX = surface.left + (cursorX / targetWidth) * surface.width
         val pointerY = surface.top + (cursorY / targetHeight) * surface.height
         val scale = resources.displayMetrics.density
-        val arrow = Path().apply {
-            // The top-left tip is the cursor hotspot, matching a desktop mouse pointer.
-            moveTo(pointerX, pointerY)
-            lineTo(pointerX, pointerY + 25f * scale)
-            lineTo(pointerX + 6.5f * scale, pointerY + 19f * scale)
-            lineTo(pointerX + 12f * scale, pointerY + 31f * scale)
-            lineTo(pointerX + 17f * scale, pointerY + 28.5f * scale)
-            lineTo(pointerX + 11.5f * scale, pointerY + 17f * scale)
-            lineTo(pointerX + 21f * scale, pointerY + 16f * scale)
-            close()
-        }
+        cursorPath.reset()
+        // The top-left tip is the cursor hotspot, matching a desktop mouse pointer.
+        cursorPath.moveTo(pointerX, pointerY)
+        cursorPath.lineTo(pointerX, pointerY + 25f * scale)
+        cursorPath.lineTo(pointerX + 6.5f * scale, pointerY + 19f * scale)
+        cursorPath.lineTo(pointerX + 12f * scale, pointerY + 31f * scale)
+        cursorPath.lineTo(pointerX + 17f * scale, pointerY + 28.5f * scale)
+        cursorPath.lineTo(pointerX + 11.5f * scale, pointerY + 17f * scale)
+        cursorPath.lineTo(pointerX + 21f * scale, pointerY + 16f * scale)
+        cursorPath.close()
         if (cursorPulseRadius > 13f) {
             canvas.drawCircle(pointerX + 8f * scale, pointerY + 15f * scale,
                 cursorPulseRadius * scale, cursorStrokePaint)
         }
-        canvas.drawPath(arrow, cursorPaint)
-        canvas.drawPath(arrow, cursorStrokePaint)
+        canvas.drawPath(cursorPath, cursorPaint)
+        canvas.drawPath(cursorPath, cursorStrokePaint)
+    }
+
+    private fun invalidateCursorOverlay() {
+        val view = cursorOverlay ?: return
+        val surface = preview ?: return
+        if (surface.width <= 0 || surface.height <= 0 || targetWidth <= 0 || targetHeight <= 0) {
+            view.invalidate()
+            return
+        }
+        val x = surface.left + (cursorX / targetWidth) * surface.width
+        val y = surface.top + (cursorY / targetHeight) * surface.height
+        val margin = dp(36).toFloat()
+        val left = minOf(x, if (lastCursorScreenX.isNaN()) x else lastCursorScreenX) - margin
+        val top = minOf(y, if (lastCursorScreenY.isNaN()) y else lastCursorScreenY) - margin
+        val right = maxOf(x, if (lastCursorScreenX.isNaN()) x else lastCursorScreenX) + margin
+        val bottom = maxOf(y, if (lastCursorScreenY.isNaN()) y else lastCursorScreenY) + margin
+        lastCursorScreenX = x
+        lastCursorScreenY = y
+        view.postInvalidateOnAnimation(left.toInt(), top.toInt(), right.toInt(), bottom.toInt())
     }
 
     private fun pulseDextopCursor() {
         cursorPulseRadius = 18f
-        cursorOverlay?.invalidate()
+        invalidateCursorOverlay()
         cursorOverlay?.postDelayed({
             cursorPulseRadius = 13f
-            cursorOverlay?.invalidate()
+            invalidateCursorOverlay()
         }, 100L)
     }
 
@@ -2105,7 +2223,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                     .coerceIn(0f, (targetHeight - 1).toFloat())
                 lastTouchX = x
                 lastTouchY = y
-                cursorOverlay?.invalidate()
+                invalidateCursorOverlay()
                 if (dragActive) queueNativeMouseButton(MotionEvent.ACTION_MOVE, cursorX, cursorY)
                 else queueNativeMouseMove(cursorX, cursorY)
                 return true
@@ -2233,6 +2351,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         preview?.holder?.setFixedSize(targetWidth, targetHeight)
         selectResolutionProfile(landscape)
         preview?.post {
+            if (::gamepadView.isInitialized) gamepadView.cancelActive()
             val parent = preview?.parent as? View
             if ((virtualDisplayController?.displayId ?: -1) >= 0) startOwnedVirtualDisplay()
             if (parent != null) updateDesktopLayout(parent.width, parent.height)
@@ -2382,6 +2501,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 keyboardPanel.layoutParams = it
             }
         }
+        if (::gamepadView.isInitialized) gamepadView.refreshOverlay()
     }
 
     private fun persistKeyboardSize() {

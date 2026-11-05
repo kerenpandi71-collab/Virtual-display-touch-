@@ -1,46 +1,34 @@
 # Virtual Display Touch
 
-A standalone Android project for controlling an Android virtual display from a phone touchscreen. This repository separates the Virtual Display Touch tools developed inside **Saku-Taskbar** so they can be maintained and built independently.
+A standalone Android app for creating a Shizuku-backed virtual display and controlling it from a phone touchscreen. The virtual display is rendered directly to a `SurfaceView`; the app does not copy each frame through an `ImageReader` or bitmap.
 
-> **Migration status:** The project scope is documented here. The Kotlin implementation still needs to be transferred with its Android build configuration and verified as a standalone app. This README does not claim the migration or an APK build is complete.
+## Features
 
-## Project goals
+- Create and manage a virtual display, with configurable resolution and density.
+- Direct **Touch** mode for forwarding multi-touch input to the virtual display.
+- Trackpad mode with mouse movement, tap, drag, and two-finger scrolling.
+- Assistant Ball shortcuts for Android/custom keyboards, navigation, and gamepad controls.
+- Virtual MOBA gamepad overlay with a left analog and right-side Skill 1–3, Attack, Spell, HP/Regen, and Recall buttons.
+- Drag each gamepad control to map it to a different location on the virtual screen; positions save automatically.
+- Adjust the overall gamepad control size, or hide the gamepad while keeping Touch mode available.
+- Runtime diagnostics and display/input status.
 
-- Create and manage an Android virtual display, including its surface and resolution.
-- Show a live virtual-display preview with a cursor overlay.
-- Provide a movable/resizable touchpad with saved portrait and landscape settings.
-- Support direct touch, mouse-style input, scrolling, keyboard input, and runtime diagnostics.
-- Include a virtual MOBA gamepad with a left analog and right-side action controls.
-- Support per-control touch-point mapping, control sizing, and saved preferences.
-- Keep the assistant floating “S” control tappable above the gamepad overlay.
-- Use the Shizuku bridge where the required privileges are available.
+## Using the gamepad
 
-## Components to migrate
+Tap the floating **V** Assistant Ball and choose **Tampilkan gamepad**. Select **Atur posisi gamepad** to drag the analog or buttons directly over the virtual display; positions save as you move them. Use **Atur ukuran gamepad** to change control size from 65% to 150%. The Assistant Ball menu can hide the controls at any time. The gamepad supports up to five simultaneous injected touches, limited by Android's touch-event path.
 
-- `VirtualDisplayTouchActivity.kt` — touchpad, preview, cursor, keyboard, settings, and diagnostics UI.
-- `VirtualMobaGamepadView.kt` — virtual gamepad and mapped touch controls.
-- `VirtualDisplayController.kt` — virtual-display lifecycle and surface management.
-- `ShizukuBridge.kt` and `ShizukuUserService.kt` — privileged service bridge.
+## Performance and compatibility
 
-A standalone app also needs a compatible Android manifest, Gradle setup, resources, and required input/runtime dependencies. Package names and Saku-Taskbar-specific references must be reviewed during extraction.
+The display output is connected directly to the `SurfaceView` to avoid an unnecessary CPU-side image-copy path. Touch MOVE samples are coalesced when the injection queue is behind, while pointer down/up/cancel transitions are preserved. Cursor and gamepad redraws are constrained to their overlay regions.
 
-## Device and compatibility
+These changes reduce work inside the app, but cannot guarantee the same frame pacing as the device's physical screen. Virtual-display composition, refresh scheduling, GPU bandwidth, Android/ROM implementation, resolution, and Shizuku privileges remain device-dependent. Test on the target ROM/device and lower the virtual resolution if GPU/compositor load is high.
 
-- Intended for Android phones, including the Redmi 12C used during development.
-- Virtual-display creation and input injection depend on Android version, ROM behavior, and available privileges.
-- Shizuku/root support is device- and setup-dependent; availability is not guaranteed.
-- Resolution, density, touch mapping, and gamepad placement need on-device testing.
+## Build
 
-## Build and verification
+The project builds as a standalone Android app with Gradle. GitHub Actions builds the debug APK on pushes to `main` and `feature/fanny-gamepad-smoothing`.
 
-A standalone Gradle build and device test have **not yet been confirmed** for this repository. Before calling it release-ready:
+## Requirements
 
-1. Build from this repository without Saku-Taskbar modules.
-2. Verify virtual-display creation and surface lifecycle.
-3. Test touch mapping, multi-touch, cursor behavior, and gamepad controls.
-4. Confirm the assistant “S” overlay remains clickable above the gamepad.
-5. Check saved settings in portrait and landscape.
-
-## Source
-
-The initial implementation was developed in [Saku-Taskbar](https://github.com/kerenpandi71-collab/Saku-Taskbar), branch `feature/virtual-display-touch`. This repository is intended to become the independent home for that feature set.
+- Android 8.0+ (API 26+).
+- Shizuku running and permission granted for the app.
+- Virtual-display creation and input injection can still be restricted by the Android version, ROM, or device policy.
